@@ -27,6 +27,7 @@
     "react": "19.0.0",
     "react-dom": "19.0.0",
     "recharts": "^2.15.3",
+    "theme-switcher": "^1.0.2",
     "uuid": "^11.1.0"
   },
   "devDependencies": {
