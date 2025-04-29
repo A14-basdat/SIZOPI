@@ -28,6 +28,7 @@ import { AlertCircle } from "lucide-react";
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { HomeIcon } from "lucide-react";
+import { ConfirmationDialog } from '@/components/confirmation-dialog';
 import RedirectButton from "@/components/redirect-button";
 
 export default function AdopterManagementPage() {
@@ -40,6 +41,11 @@ export default function AdopterManagementPage() {
   const [currentPage, setCurrentPage] = useState(1);
   const [itemsPerPage, setItemsPerPage] = useState(10);
   const [activeTab, setActiveTab] = useState('all');
+  
+  // Add confirmation dialog state
+  const [selectedAdopter, setSelectedAdopter] = useState<Adopter | null>(null);
+  const [isDeleteDialogOpen, setIsDeleteDialogOpen] = useState(false);
+  const [isDeleting, setIsDeleting] = useState(false);
   
   const adopterService = new AdopterManagementService();
   
@@ -102,13 +108,26 @@ export default function AdopterManagementPage() {
     }
   }
   
-  async function handleDelete(id: string) {
+  // Replace the direct delete with a dialog opener
+  function handleDeleteClick(adopter: Adopter) {
+    setSelectedAdopter(adopter);
+    setIsDeleteDialogOpen(true);
+  }
+  
+  // Actual delete function now used by the confirmation dialog
+  async function handleConfirmDelete() {
+    if (!selectedAdopter) return;
+    
+    setIsDeleting(true);
     try {
-      await adopterService.deleteAdopter(id);
+      await adopterService.deleteAdopter(selectedAdopter.id_adopter);
       fetchAdopters();
     } catch (err: any) {
       console.error('Error deleting adopter:', err);
       setError(err.message || 'Failed to delete adopter');
+    } finally {
+      setIsDeleting(false);
+      setIsDeleteDialogOpen(false);
     }
   }
   
@@ -330,7 +349,7 @@ export default function AdopterManagementPage() {
                           <Button 
                             variant="destructive" 
                             size="sm" 
-                            onClick={() => handleDelete(adopter.id_adopter)}
+                            onClick={() => handleDeleteClick(adopter)}
                             disabled={adopter.active_adoptions && adopter.active_adoptions > 0}
                           >
                             <Trash2 className="h-4 w-4 mr-1" />
@@ -432,6 +451,21 @@ export default function AdopterManagementPage() {
           </RedirectButton>
         </div>
       </div>
+      
+      {/* Confirmation Dialog */}
+      <ConfirmationDialog
+        title="Delete Adopter"
+        description={selectedAdopter ? 
+          `Are you sure you want to delete ${getAdopterName(selectedAdopter)}? This action cannot be undone.` : 
+          "Are you sure you want to delete this adopter?"}
+        open={isDeleteDialogOpen}
+        onOpenChange={setIsDeleteDialogOpen}
+        onConfirm={handleConfirmDelete}
+        confirmText="Delete"
+        cancelText="Cancel"
+        variant="destructive"
+        isLoading={isDeleting}
+      />
     </div>
   );
 }
