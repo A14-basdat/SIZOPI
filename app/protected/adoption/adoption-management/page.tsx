@@ -430,7 +430,7 @@ export default function AdoptionManagementPage() {
           <AlertCircle className="h-4 w-4" />
           <AlertTitle>Note</AlertTitle>
           <AlertDescription>
-            The "Contribution" value is based on millions of Rupiah (Rp)
+            The "Contribution" value is based on thousands of Rupiah (Rp)
           </AlertDescription>
         </Alert>
 
