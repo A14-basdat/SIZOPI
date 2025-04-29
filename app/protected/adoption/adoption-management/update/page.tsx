@@ -37,7 +37,7 @@ import { format } from 'date-fns';
 import { zodResolver } from '@hookform/resolvers/zod';
 import { useForm } from 'react-hook-form';
 import * as z from 'zod';
-import Adoption from '@/services/adoption/adoption-management/types';
+import { Adoption } from '@/services/adoption/adoption-management/services';
 
 // Define form schema with zod
 const formSchema = z.object({

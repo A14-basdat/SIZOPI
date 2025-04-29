@@ -25,9 +25,11 @@ import {
 import { Badge } from "@/components/ui/badge";
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
-import Adoption from '@/services/adoption/adoption-management/types';
+import { Adoption } from '@/services/adoption/adoption-management/services';
 import RedirectButton from "@/components/redirect-button";
 import { HomeIcon } from "lucide-react";
+import { NavBar } from '@/components/navbar';
+import { redirect } from 'next/navigation';
 
 
 export default function AdoptionManagementPage() {
@@ -109,7 +111,7 @@ export default function AdoptionManagementPage() {
     }
   }
   
-  async function handleDelete(id: string) {
+  async function handleDelete(id: string, adopterId: string) {
     try {
       const { error } = await supabase
         .from('adoptions')
@@ -133,6 +135,17 @@ export default function AdoptionManagementPage() {
   function handleCreate() { 
     router.push('/protected/adoption/adoption-management/create');
   }
+
+  function handleStatusChange(id_adopter: string, id_hewan: string, newStatus: string) {
+    adoptionService.updateAdoptionStatus(id_adopter, id_hewan, newStatus)
+      .then(() => {
+        fetchAdoptions();
+      })
+      .catch(err => {
+        console.error('Error updating status:', err);
+        setError('Failed to update status');
+      });
+  }
   
   function handlePageChange(page: number) {
     if (page < 1 || page > totalPages) return;
@@ -140,12 +153,13 @@ export default function AdoptionManagementPage() {
   }
   
   if (loading) return (
+    <><NavBar user={null}></NavBar>
     <div className="flex items-center justify-center h-64">
       <div className="text-center">
         <Loader2 className="h-8 w-8 animate-spin mx-auto mb-4 text-primary" />
         <p className="text-muted-foreground">Loading adoptions...</p>
       </div>
-    </div>
+    </div></>
   );
   
   if (error) return (

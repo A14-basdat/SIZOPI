@@ -18,7 +18,7 @@ export class AdoptionManagementService {
   private supabase;
   
   constructor() {
-    this.supabase = createClient<Database>();
+    this.supabase = createClient();
   }
   
   /**
@@ -278,6 +278,9 @@ export class AdoptionManagementService {
       const { data: adoptedAnimals } = await this.supabase
         .from('adopsi')
         .select('id_hewan');
+      
+      if (error) throw error;
+      else if (adoptedAnimals === null) throw error;
         
       // Filter out already adopted animals
       const adoptedIds = adoptedAnimals.map(a => a.id_hewan);
