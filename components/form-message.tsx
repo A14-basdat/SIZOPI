@@ -1,7 +1,8 @@
-export type Message =
-  | { success: string }
-  | { error: string }
-  | { message: string };
+export interface Message {
+  message?: string;
+  error?: string;
+  success?: string;
+}
 
 export function FormMessage({ message }: { message: Message }) {
   return (
