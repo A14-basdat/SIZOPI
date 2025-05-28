@@ -2,17 +2,17 @@
 
 import * as React from "react";
 
-export interface CheckboxProps extends React.InputHTMLAttributes<HTMLInputElement> {
+export interface RadioProps extends React.InputHTMLAttributes<HTMLInputElement> {
   label?: string;
 }
 
-const Checkbox = React.forwardRef<HTMLInputElement, CheckboxProps>(
+const Radio = React.forwardRef<HTMLInputElement, RadioProps>(
   ({ className = "", label, ...props }, ref) => {
     return (
       <div className="flex items-center space-x-2">
         <input
-          type="checkbox"
-          className={`h-4 w-4 rounded border border-primary text-primary focus:ring-primary focus:ring-2 ${className}`}
+          type="radio"
+          className={`h-4 w-4 text-primary focus:ring-primary focus:ring-2 ${className}`}
           ref={ref}
           {...props}
         />
@@ -25,6 +25,6 @@ const Checkbox = React.forwardRef<HTMLInputElement, CheckboxProps>(
     );
   }
 );
-Checkbox.displayName = "Checkbox";
+Radio.displayName = "Radio";
 
-export { Checkbox };
+export { Radio };
