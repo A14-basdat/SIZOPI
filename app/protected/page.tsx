@@ -25,20 +25,19 @@ const UserProfileCard = ({ userProfile, role }: { userProfile: any, role: string
     }
   };
 
-  const getRoleDisplayName = () => {
-    switch (role) {
-      case 'pengunjung':
-        return 'Pengunjung';
-      case 'dokter_hewan':
-        return 'Dokter Hewan';
-      case 'staff':
-        return `Staff ${userProfile.roleSpecificData?.peran ? 
-          userProfile.roleSpecificData.peran.charAt(0).toUpperCase() + 
-          userProfile.roleSpecificData.peran.slice(1) : ''}`;
-      default:
-        return 'User';
-    }
-  };
+ const getRoleDisplayName = () => {
+  switch (role) {
+    case 'pengunjung':
+      return 'Pengunjung';
+    case 'dokter_hewan':
+      return 'Dokter Hewan';
+    case 'staff':
+      return `Staff ${userProfile.roleSpecificData?.peran || ''}`;
+    default:
+      return 'User';
+  }
+};
+
 
   return (
     <div className="bg-white shadow-lg rounded-xl p-8 max-w-2xl mx-auto">

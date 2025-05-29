@@ -3,8 +3,6 @@
 import { encodedRedirect } from "@/utils/utils";
 import { createClient } from "@/utils/supabase/server";
 import { redirect } from "next/navigation";
-// Remove bcrypt import since we're not hashing
-// import bcrypt from 'bcryptjs';
 import { cookies } from 'next/headers';
 import { randomUUID } from 'crypto';
 
@@ -70,13 +68,13 @@ const destroySession = async () => {
 export const getUserProfile = async (username: string): Promise<UserProfile | null> => {
   try {
     const supabase = await createClient();
-    const supabaseDb = supabase.schema('sizopi');
 
     console.log('=== FETCHING USER PROFILE ===');
     console.log('Username:', username);
 
     // Get basic user data from pengguna table
-    const { data: userData, error: userError } = await supabaseDb
+    const { data: userData, error: userError } = await supabase
+      .schema('sizopi')
       .from('pengguna')
       .select('*')
       .eq('username', username)
@@ -89,99 +87,55 @@ export const getUserProfile = async (username: string): Promise<UserProfile | nu
 
     console.log('Basic user data fetched:', userData);
 
-    // Determine role and get role-specific data
-    let role: UserRole;
+    // Get role information using stored procedure with schema specification
+    const { data: roleData, error: roleError } = await supabase
+      .schema('sizopi')
+      .rpc('get_user_role', { p_username: username });
+
+    if (roleError || !roleData || roleData.length === 0) {
+      console.error('Role data fetch error:', roleError);
+      return null;
+    }
+
+    const roleInfo = roleData[0];
+    const role = roleInfo.role_type as UserRole;
+    const roleDetails = roleInfo.role_details;
+
+    console.log('Role information:', { role, roleDetails });
+
+    // Map role details to our interface
     let roleSpecificData: any = {};
-
-    // Check pengunjung
-    const { data: pengunjungData } = await supabaseDb
-      .from('pengunjung')
-      .select('*')
-      .eq('username_p', username)
-      .single();
-
-    if (pengunjungData) {
-      role = 'pengunjung';
-      roleSpecificData = {
-        alamat: pengunjungData.alamat,
-        tgl_lahir: pengunjungData.tgl_lahir
-      };
-      console.log('Pengunjung data:', roleSpecificData);
-    } else {
-      // Check dokter_hewan
-      const { data: dokterData } = await supabaseDb
-        .from('dokter_hewan')
-        .select('*')
-        .eq('username_dh', username)
-        .single();
-
-      if (dokterData) {
-        role = 'dokter_hewan';
-        roleSpecificData.no_str = dokterData.no_str;
-
-        // Get specializations
-        const { data: spesialisasiData } = await supabaseDb
-          .from('spesialisasi')
-          .select('nama_spesialisasi')
-          .eq('username_sh', username);
-
-        roleSpecificData.spesialisasi = spesialisasiData?.map(s => s.nama_spesialisasi) || [];
-        console.log('Dokter data:', roleSpecificData);
-      } else {
-        // Check staff tables
-        const { data: penjagaData } = await supabaseDb
-          .from('penjaga_hewan')
-          .select('*')
-          .eq('username_jh', username)
-          .single();
-
-        const { data: adminData } = await supabaseDb
-          .from('staf_admin')
-          .select('*')
-          .eq('username_sa', username)
-          .single();
-
-        const { data: pelatihData } = await supabaseDb
-          .from('pelatih_hewan')
-          .select('*')
-          .eq('username_lh', username)
-          .single();
-
-        if (penjagaData) {
-          role = 'staff';
-          roleSpecificData = {
-            id_staf: penjagaData.id_staf,
-            peran: 'penjaga'
-          };
-        } else if (adminData) {
-          role = 'staff';
-          roleSpecificData = {
-            id_staf: adminData.id_staf,
-            peran: 'admin'
-          };
-        } else if (pelatihData) {
-          role = 'staff';
-          roleSpecificData = {
-            id_staf: pelatihData.id_staf,
-            peran: 'pelatih'
-          };
-        } else {
-          console.error('No role found for user');
-          return null;
-        }
-        console.log('Staff data:', roleSpecificData);
-      }
+    
+    switch (role) {
+      case 'pengunjung':
+        roleSpecificData = {
+          alamat: roleDetails.alamat,
+          tgl_lahir: roleDetails.tgl_lahir
+        };
+        break;
+      case 'dokter_hewan':
+        roleSpecificData = {
+          no_str: roleDetails.no_str,
+          spesialisasi: roleDetails.spesialisasi || []
+        };
+        break;
+      case 'staff':
+        roleSpecificData = {
+          id_staf: roleDetails.id_staf,
+          peran: roleDetails.peran
+        };
+        break;
     }
 
     const userProfile: UserProfile = {
       username: userData.username,
       email: userData.email,
-      password: userData.password, // Note: This should be handled carefully in production
+      password: userData.password,
       nama_depan: userData.nama_depan,
       nama_tengah: userData.nama_tengah,
       nama_belakang: userData.nama_belakang,
       no_telepon: userData.no_telepon,
-      role: role!,
+      role: role,
       roleSpecificData
     };
 
@@ -207,10 +161,8 @@ export const getUserRoleInfo = async (username: string) => {
     roleSpecificData: profile.roleSpecificData
   };
 };
-
 export const signUpAction = async (formData: FormData) => {
   const supabase = await createClient();
-  const supabaseDb = supabase.schema('sizopi');
   
   // Get basic user data
   const username = formData.get("username")?.toString();
@@ -240,66 +192,10 @@ export const signUpAction = async (formData: FormData) => {
   }
 
   try {
-    console.log('=== DATABASE VALIDATION QUERIES ===');
+    console.log('=== PREPARING ROLE-SPECIFIC DATA ===');
     
-    // Check if username already exists
-    console.log('Checking username availability:', username);
-    const { data: existingUser, error: checkError } = await supabaseDb
-      .from('pengguna')
-      .select('username')
-      .eq('username', username)
-      .single();
-
-    console.log('Username check result:', { exists: !!existingUser, error: checkError?.message });
-
-    if (existingUser) {
-      return encodedRedirect("error", "/sign-up", "Username already exists");
-    }
-
-    // Check if email already exists
-    console.log('Checking email availability:', email);
-    const { data: existingEmail, error: emailCheckError } = await supabaseDb
-      .from('pengguna')
-      .select('email')
-      .eq('email', email)
-      .single();
-
-    console.log('Email check result:', { exists: !!existingEmail, error: emailCheckError?.message });
-
-    if (existingEmail) {
-      return encodedRedirect("error", "/sign-up", "Email already exists");
-    }
-
-    // SECURITY WARNING: Storing password in plain text
-    console.log('⚠️  WARNING: Storing password in plain text - this is insecure!');
-
-    console.log('=== DATABASE INSERT OPERATIONS ===');
-
-    // Insert into Pengguna table (Main User Table)
-    console.log('Inserting into PENGGUNA table...');
-    const penggunaData = {
-      username,
-      email,
-      password, // Plain text password - INSECURE!
-      nama_depan,
-      nama_tengah,
-      nama_belakang,
-      no_telepon
-    };
-    console.log('PENGGUNA INSERT DATA:', penggunaData);
-
-    const { error: penggunaError } = await supabaseDb
-      .from('pengguna')
-      .insert(penggunaData);
-
-    if (penggunaError) {
-      console.error('PENGGUNA INSERT ERROR:', penggunaError);
-      return encodedRedirect("error", "/sign-up", "Failed to create user profile");
-    }
-    console.log('✅ PENGGUNA table insert successful');
-
-    // Insert role-specific data
-    console.log('=== ROLE-SPECIFIC DATABASE INSERTS ===');
+    // Prepare role-specific data
+    let roleData: any = {};
     
     switch (role) {
       case 'pengunjung':
@@ -310,23 +206,10 @@ export const signUpAction = async (formData: FormData) => {
           return encodedRedirect("error", "/sign-up", "Address and birth date are required for visitors");
         }
 
-        console.log('Inserting into PENGUNJUNG table...');
-        const pengunjungData = {
-          username_p: username,
+        roleData = {
           alamat,
           tgl_lahir
         };
-        console.log('PENGUNJUNG INSERT DATA:', pengunjungData);
-
-        const { error: pengunjungError } = await supabaseDb
-          .from('pengunjung')
-          .insert(pengunjungData);
-
-        if (pengunjungError) {
-          console.error('PENGUNJUNG INSERT ERROR:', pengunjungError);
-          return encodedRedirect("error", "/sign-up", "Failed to create visitor profile");
-        }
-        console.log('✅ PENGUNJUNG table insert successful');
         break;
 
       case 'dokter_hewan':
@@ -337,46 +220,10 @@ export const signUpAction = async (formData: FormData) => {
           return encodedRedirect("error", "/sign-up", "Professional certification number and specialization are required");
         }
 
-        // Insert into Dokter_Hewan
-        console.log('Inserting into DOKTER_HEWAN table...');
-        const dokterData = {
-          username_dh: username,
-          no_str
+        roleData = {
+          no_str,
+          spesialisasi: spesialisasiArray.filter(spec => spec && spec.toString().trim() !== '')
         };
-        console.log('DOKTER_HEWAN INSERT DATA:', dokterData);
-
-        const { error: dokterError } = await supabaseDb
-          .from('dokter_hewan')
-          .insert(dokterData);
-
-        if (dokterError) {
-          console.error('DOKTER_HEWAN INSERT ERROR:', dokterError);
-          return encodedRedirect("error", "/sign-up", "Failed to create veterinarian profile");
-        }
-        console.log('✅ DOKTER_HEWAN table insert successful');
-
-        // Insert specializations
-        console.log('Inserting into SPESIALISASI table...');
-        const spesialisasiInserts = spesialisasiArray
-          .filter(spec => spec && spec.toString().trim() !== '')
-          .map(spec => ({
-            username_sh: username,
-            nama_spesialisasi: spec.toString().trim()
-          }));
-
-        console.log('SPESIALISASI INSERT DATA:', spesialisasiInserts);
-
-        if (spesialisasiInserts.length > 0) {
-          const { error: spesialisasiError } = await supabaseDb
-            .from('spesialisasi')
-            .insert(spesialisasiInserts);
-
-          if (spesialisasiError) {
-            console.error('SPESIALISASI INSERT ERROR:', spesialisasiError);
-            return encodedRedirect("error", "/sign-up", "Failed to create specialization records");
-          }
-          console.log('✅ SPESIALISASI table insert successful');
-        }
         break;
 
       case 'staff':
@@ -388,56 +235,66 @@ export const signUpAction = async (formData: FormData) => {
 
         // Generate UUID for staff ID
         const staffId = generateStaffId();
-        let tableName = '';
-        let usernameField = '';
-
-        switch (peran) {
-          case 'penjaga':
-            tableName = 'penjaga_hewan';
-            usernameField = 'username_jh';
-            break;
-          case 'admin':
-            tableName = 'staf_admin';
-            usernameField = 'username_sa';
-            break;
-          case 'pelatih':
-            tableName = 'pelatih_hewan';
-            usernameField = 'username_lh';
-            break;
-          default:
-            return encodedRedirect("error", "/sign-up", "Invalid staff role");
-        }
-
-        console.log(`Inserting into ${tableName.toUpperCase()} table...`);
-        const staffData = {
-          [usernameField]: username,
+        roleData = {
+          peran,
           id_staf: staffId
         };
-        console.log(`${tableName.toUpperCase()} INSERT DATA:`, staffData);
-        console.log(`Generated UUID for staff: ${staffId}`);
-
-        const { error: staffError } = await supabaseDb
-          .from(tableName)
-          .insert(staffData);
-
-        if (staffError) {
-          console.error(`${tableName.toUpperCase()} INSERT ERROR:`, staffError);
-          return encodedRedirect("error", "/sign-up", "Failed to create staff profile");
-        }
-        console.log(`✅ ${tableName.toUpperCase()} table insert successful`);
         break;
 
       default:
         return encodedRedirect("error", "/sign-up", "Invalid role selected");
     }
 
-    console.log('=== REGISTRATION COMPLETED SUCCESSFULLY ===');
+    console.log('Role-specific data prepared:', roleData);
+
+    console.log('=== CALLING STORED PROCEDURE FOR REGISTRATION ===');
     
-    // Option 1: Redirect to sign-in with success message
+    // Call the stored procedure for user registration with schema specification
+    const { data, error } = await supabase
+      .schema('sizopi')
+      .rpc('register_user_with_role', {
+        p_username: username,
+        p_email: email,
+        p_password: password,
+        p_nama_depan: nama_depan,
+        p_nama_tengah: nama_tengah,
+        p_nama_belakang: nama_belakang,
+        p_no_telepon: no_telepon,
+        p_role: role,
+        p_role_data: roleData
+      });
+
+    if (error) {
+      console.error('=== STORED PROCEDURE ERROR ===', error);
+      
+      let errorMessage = error.message;
+      
+      console.log('=== RETURNING ERROR MESSAGE TO FRONTEND ===');
+      console.log('Error message:', errorMessage);
+      
+      return encodedRedirect("error", "/sign-up", errorMessage);
+    }
+
+    console.log('=== REGISTRATION COMPLETED SUCCESSFULLY ===');
+    console.log('Stored procedure result:', data);
+    
     return encodedRedirect("success", "/sign-in", "Registration successful! Please sign in with your credentials.");
 
   } catch (error) {
+    if (error instanceof Error && error.message === 'NEXT_REDIRECT') {
+      console.log('=== REDIRECT INITIATED (Normal Next.js behavior) ===');
+      throw error; 
+    }
+    
     console.error('=== REGISTRATION ERROR ===', error);
+    
+    // Handle any other errors
+    if (error instanceof Error) {
+      console.log('=== RETURNING CATCH ERROR MESSAGE TO FRONTEND ===');
+      console.log('Error message:', error.message);
+      return encodedRedirect("error", "/sign-up", error.message);
+    }
+    
     return encodedRedirect("error", "/sign-up", "Registration failed. Please try again.");
   }
 };
@@ -446,7 +303,6 @@ export const signInAction = async (formData: FormData) => {
   const identifier = formData.get("identifier") as string;
   const password = formData.get("password") as string;
   const supabase = await createClient();
-  const supabaseDb = supabase.schema('sizopi');
 
   console.log('=== LOGIN PROCESS START ===');
   console.log('Login attempt with identifier:', identifier);
@@ -456,115 +312,58 @@ export const signInAction = async (formData: FormData) => {
   }
 
   try {
-    console.log('=== DATABASE AUTHENTICATION QUERIES ===');
+    console.log('=== CALLING STORED PROCEDURE FOR LOGIN VERIFICATION ===');
     
-    let userData;
-    let userRole: UserRole;
-    
-    // Determine if identifier is email or username
-    const isEmail = identifier.includes('@');
-    console.log('Identifier type:', isEmail ? 'EMAIL' : 'USERNAME');
+    // Call the stored procedure for credential verification with schema specification
+    const { data, error } = await supabase
+      .schema('sizopi')
+      .rpc('verify_login_credentials', {
+        p_identifier: identifier,
+        p_password: password
+      });
 
-    if (isEmail) {
-      // Login with email
-      console.log('Querying PENGGUNA table by email...');
-      const { data, error: userError } = await supabaseDb
-        .from('pengguna')
-        .select('username, email, password')
-        .eq('email', identifier)
-        .single();
-
-      console.log('Email query result:', { found: !!data, error: userError?.message });
-
-      if (userError || !data) {
-        return encodedRedirect("error", "/sign-in", "Invalid email or password");
-      }
+    if (error) {
+      console.error('=== LOGIN VERIFICATION ERROR ===', error);
       
-      userData = data;
-    } else {
-      // Login with username
-      console.log('Querying PENGGUNA table by username...');
-      const { data, error: userError } = await supabaseDb
-        .from('pengguna')
-        .select('username, email, password')
-        .eq('username', identifier)
-        .single();
-
-      console.log('Username query result:', { found: !!data, error: userError?.message });
-
-      if (userError || !data) {
-        return encodedRedirect("error", "/sign-in", "Invalid username or password");
-      }
+      // Extract the exact error message from the stored procedure
+      let errorMessage = error.message;
       
-      userData = data;
+      // Log the exact message we're returning to frontend
+      console.log('=== RETURNING ERROR MESSAGE TO FRONTEND ===');
+      console.log('Error message:', errorMessage);
+      
+      // Return the exact message from the stored procedure
+      return encodedRedirect("error", "/sign-in", errorMessage);
     }
 
-    console.log('=== PASSWORD VERIFICATION ===');
-    // Simple string comparison for plain text passwords
-    const isPasswordValid = password === userData.password;
-    console.log('Password verification result:', isPasswordValid);
-    
-    if (!isPasswordValid) {
-      return encodedRedirect("error", "/sign-in", "Invalid credentials");
+    if (!data || data.length === 0) {
+      return encodedRedirect("error", "/sign-in", "Username atau password salah, silakan coba lagi.");
     }
+
+    const userData = data[0];
+    const username = userData.username;
+
+    console.log('=== LOGIN VERIFICATION SUCCESSFUL ===');
+    console.log('User authenticated:', username);
 
     console.log('=== DETERMINING USER ROLE ===');
-    // Determine user role by checking role-specific tables
-    const username = userData.username;
     
-    // Check PENGUNJUNG table
-    console.log('Checking PENGUNJUNG table...');
-    const { data: pengunjungData } = await supabaseDb
-      .from('pengunjung')
-      .select('username_p')
-      .eq('username_p', username)
-      .single();
+    // Get user role using stored procedure with schema specification
+    const { data: roleData, error: roleError } = await supabase
+      .schema('sizopi')
+      .rpc('get_user_role', { p_username: username });
 
-    if (pengunjungData) {
-      userRole = 'pengunjung';
-      console.log('✅ User role identified: PENGUNJUNG');
-    } else {
-      // Check DOKTER_HEWAN table
-      console.log('Checking DOKTER_HEWAN table...');
-      const { data: dokterData } = await supabaseDb
-        .from('dokter_hewan')
-        .select('username_dh')
-        .eq('username_dh', username)
-        .single();
-
-      if (dokterData) {
-        userRole = 'dokter_hewan';
-        console.log('✅ User role identified: DOKTER_HEWAN');
-      } else {
-        // Check staff tables
-        console.log('Checking STAFF tables...');
-        const { data: penjagaData } = await supabaseDb
-          .from('penjaga_hewan')
-          .select('username_jh')
-          .eq('username_jh', username)
-          .single();
-
-        const { data: adminData } = await supabaseDb
-          .from('staf_admin')
-          .select('username_sa')
-          .eq('username_sa', username)
-          .single();
-
-        const { data: pelatihData } = await supabaseDb
-          .from('pelatih_hewan')
-          .select('username_lh')
-          .eq('username_lh', username)
-          .single();
-
-        if (penjagaData || adminData || pelatihData) {
-          userRole = 'staff';
-          console.log('✅ User role identified: STAFF');
-        } else {
-          console.log('❌ User role could not be determined');
-          return encodedRedirect("error", "/sign-in", "User role not found");
-        }
-      }
+    if (roleError || !roleData || roleData.length === 0) {
+      console.error('Role determination error:', roleError);
+      return encodedRedirect("error", "/sign-in", "User role not found");
     }
+
+    const roleInfo = roleData[0];
+    const userRole = roleInfo.role_type as UserRole;
+    const roleDetails = roleInfo.role_details;
+
+    console.log('✅ User role identified:', userRole);
+    console.log('Role details:', roleDetails);
 
     console.log('=== FETCHING COMPLETE USER PROFILE ===');
     // Get complete user profile for session
@@ -576,22 +375,67 @@ export const signInAction = async (formData: FormData) => {
     console.log('✅ Session created successfully with user profile');
 
     console.log('=== LOGIN COMPLETED SUCCESSFULLY ===');
-    console.log('✅ Redirecting to protected area...');
+    console.log('✅ Determining redirect based on role...');
 
-    // The redirect will throw NEXT_REDIRECT internally - this is normal behavior
-    return redirect("/protected");
+    // Role-based redirect logic
+    let redirectPath = "/protected"; // Default fallback
+
+    switch (userRole) {
+      case 'pengunjung':
+        redirectPath = "/protected/dashboard/pengunjung";
+        break;
+      case 'dokter_hewan':
+        redirectPath = "/protected/dashboard/dokter-hewan";
+        break;
+      case 'staff':
+        // For staff, we need to check their specific role
+        const staffRole = roleDetails?.peran;
+        console.log('Staff role detected:', staffRole);
+        
+        switch (staffRole) {
+          case 'penjaga':
+            redirectPath = "/protected/dashboard/penjaga-hewan";
+            break;
+          case 'admin':
+            redirectPath = "/protected/dashboard/staf-administrasi";
+            break;
+          case 'pelatih':
+            redirectPath = "/protected/dashboard/staf-pelatih";
+            break;
+          default:
+            console.log('Unknown staff role, using default protected page');
+            redirectPath = "/protected";
+        }
+        break;
+      default:
+        console.log('Unknown user role, using default protected page');
+        redirectPath = "/protected";
+    }
+
+    console.log('Redirecting to:', redirectPath);
+    return redirect(redirectPath);
 
   } catch (error) {
-    // Only log actual errors, not Next.js redirects
     if (error instanceof Error && error.message === 'NEXT_REDIRECT') {
-      // This is expected behavior for redirects, don't log as error
-      throw error; // Re-throw to let Next.js handle the redirect
+      console.log('=== REDIRECT INITIATED (Normal Next.js behavior) ===');
+      throw error; 
     }
     
     console.error('=== LOGIN ERROR ===', error);
+    
+    // Handle any other errors
+    if (error instanceof Error) {
+      console.log('=== RETURNING CATCH ERROR MESSAGE TO FRONTEND ===');
+      console.log('Error message:', error.message);
+      return encodedRedirect("error", "/sign-in", error.message);
+    }
+    
     return encodedRedirect("error", "/sign-in", "Sign in failed. Please try again.");
   }
 };
+
+
+
 
 export const signOutAction = async () => {
   console.log('=== LOGOUT PROCESS START ===');
@@ -643,4 +487,1184 @@ export const refreshUserSession = async (username: string) => {
 
   await createSession(username, updatedProfile.role, updatedProfile);
   return true;
+};
+
+// Function to get visit history for a pengunjung from reservasi table
+export const getVisitHistory = async (username: string) => {
+  try {
+    const supabase = await createClient();
+    
+    console.log('Fetching visit history for:', username);
+    
+    // First, get reservations for the user
+    const { data: reservations, error: reservasiError } = await supabase
+      .schema('sizopi')
+      .from('reservasi')
+      .select('*')
+      .eq('username_p', username)
+      .order('tanggal_kunjungan', { ascending: false });
+
+    if (reservasiError) {
+      console.error('Error fetching reservations:', reservasiError);
+      return [];
+    }
+
+    if (!reservations || reservations.length === 0) {
+      console.log('No visit history found for user:', username);
+      return [];
+    }
+
+    // Get unique facility names using Array.from instead of spread operator
+    const facilityNames = Array.from(new Set(reservations.map(r => r.nama_fasilitas)));
+    
+    // Get facility details
+    const { data: facilities, error: fasilitasError } = await supabase
+      .schema('sizopi')
+      .from('fasilitas')
+      .select('nama, jadwal, kapasitas_max')
+      .in('nama', facilityNames);
+
+    if (fasilitasError) {
+      console.error('Error fetching facilities:', fasilitasError);
+    }
+
+    // Create a map for quick lookup
+    const facilityMap = new Map();
+    if (facilities) {
+      facilities.forEach(facility => {
+        facilityMap.set(facility.nama, {
+          jadwal: facility.jadwal,
+          kapasitas_max: facility.kapasitas_max
+        });
+      });
+    }
+
+    // Transform reservations to visit history format
+    const visitHistory = reservations.map((reservation, index) => {
+      const facilityInfo = facilityMap.get(reservation.nama_fasilitas);
+      return {
+        id: index + 1,
+        nama_fasilitas: reservation.nama_fasilitas,
+        tanggal_kunjungan: reservation.tanggal_kunjungan,
+        jumlah_tiket: reservation.jumlah_tiket,
+        status: reservation.status,
+        jadwal: facilityInfo?.jadwal || null,
+        kapasitas_max: facilityInfo?.kapasitas_max || null
+      };
+    });
+
+    console.log('✅ Visit history fetched successfully:', visitHistory);
+    return visitHistory;
+    
+  } catch (error) {
+    console.error('Error fetching visit history:', error);
+    return [];
+  }
+};
+// Function to get purchased tickets for a pengunjung from reservasi table
+export const getPurchasedTickets = async (username: string) => {
+  try {
+    const supabase = await createClient();
+    
+    console.log('Fetching purchased tickets for:', username);
+    
+    // First, get reservations for the user
+    const { data: reservations, error: reservasiError } = await supabase
+      .schema('sizopi')
+      .from('reservasi')
+      .select('*')
+      .eq('username_p', username)
+      .order('tanggal_kunjungan', { ascending: false });
+
+    if (reservasiError) {
+      console.error('Error fetching reservations:', reservasiError);
+      return [];
+    }
+
+    if (!reservations || reservations.length === 0) {
+      console.log('No purchased tickets found for user:', username);
+      return [];
+    }
+
+    // Get unique facility names using Array.from instead of spread operator
+    const facilityNames = Array.from(new Set(reservations.map(r => r.nama_fasilitas)));
+    
+    // Get facility details
+    const { data: facilities, error: fasilitasError } = await supabase
+      .schema('sizopi')
+      .from('fasilitas')
+      .select('nama, jadwal, kapasitas_max')
+      .in('nama', facilityNames);
+
+    if (fasilitasError) {
+      console.error('Error fetching facilities:', fasilitasError);
+    }
+
+    // Create a map for quick lookup
+    const facilityMap = new Map();
+    if (facilities) {
+      facilities.forEach(facility => {
+        facilityMap.set(facility.nama, {
+          jadwal: facility.jadwal,
+          kapasitas_max: facility.kapasitas_max
+        });
+      });
+    }
+
+    // Transform reservations to purchased tickets format
+    const purchasedTickets = reservations.map((reservation, index) => {
+      const facilityInfo = facilityMap.get(reservation.nama_fasilitas);
+      return {
+        id: index + 1,
+        nama_fasilitas: reservation.nama_fasilitas,
+        tanggal_kunjungan: reservation.tanggal_kunjungan,
+        jumlah_tiket: reservation.jumlah_tiket,
+        status: reservation.status,
+        jadwal: facilityInfo?.jadwal || null,
+        kapasitas_max: facilityInfo?.kapasitas_max || null
+      };
+    });
+
+    console.log('✅ Purchased tickets fetched successfully:', purchasedTickets);
+    return purchasedTickets;
+    
+  } catch (error) {
+    console.error('Error fetching purchased tickets:', error);
+    return [];
+  }
+};
+
+
+export const getVeterinarianMedicalRecords = async (username: string) => {
+  try {
+    const supabase = await createClient();
+    
+    console.log('Fetching medical records for veterinarian:', username);
+    
+    // First verify the user is a veterinarian
+    const { data: vetData, error: vetError } = await supabase
+      .schema('sizopi')
+      .from('dokter_hewan')
+      .select('username_dh')
+      .eq('username_dh', username)
+      .single();
+
+    if (vetError || !vetData) {
+      console.error('User is not a veterinarian:', vetError);
+      return [];
+    }
+
+    // Get medical records for this veterinarian
+    const { data: medicalRecords, error: recordsError } = await supabase
+      .schema('sizopi')
+      .from('catatan_medis')
+      .select('*')
+      .eq('username_dh', username)
+      .order('tanggal_pemeriksaan', { ascending: false });
+
+    if (recordsError) {
+      console.error('Error fetching medical records:', recordsError);
+      return [];
+    }
+
+    if (!medicalRecords || medicalRecords.length === 0) {
+      console.log('No medical records found for veterinarian:', username);
+      return [];
+    }
+
+    console.log('Raw medical records:', medicalRecords);
+
+    // Get unique animal IDs
+    const animalIds = Array.from(new Set(medicalRecords.map(record => record.id_hewan)));
+    
+    // Fetch animal information separately
+    const { data: animals, error: animalError } = await supabase
+      .schema('sizopi')
+      .from('hewan')
+      .select('id, nama')
+      .in('id', animalIds);
+
+    if (animalError) {
+      console.error('Error fetching animal data:', animalError);
+    }
+
+    console.log('Animal data:', animals);
+
+    // Create a map for quick animal lookup
+    const animalMap = new Map();
+    if (animals) {
+      animals.forEach(animal => {
+        animalMap.set(animal.id, animal.nama);
+      });
+    }
+
+    // Transform the data to match our interface
+    const transformedRecords = medicalRecords.map(record => ({
+      id_hewan: record.id_hewan,
+      animalName: animalMap.get(record.id_hewan) || 'Unknown Animal',
+      tanggal_pemeriksaan: record.tanggal_pemeriksaan,
+      diagnosis: record.diagnosis,
+      pengobatan: record.pengobatan,
+      status_kesehatan: record.status_kesehatan,
+      catatan_tindak_lanjut: record.catatan_tindak_lanjut
+    }));
+
+    console.log('✅ Medical records fetched successfully:', transformedRecords.length, 'records');
+    console.log('Transformed records:', transformedRecords);
+    return transformedRecords;
+    
+  } catch (error) {
+    console.error('Error fetching veterinarian medical records:', error);
+    return [];
+  }
+};
+
+// Function to get veterinarian statistics
+
+export const getVeterinarianStats = async (username: string) => {
+  try {
+    const supabase = await createClient();
+    
+    console.log('Fetching veterinarian statistics for:', username);
+    
+    // Get all medical records for this veterinarian
+    const { data: medicalRecords, error: countError } = await supabase
+      .schema('sizopi')
+      .from('catatan_medis')
+      .select('id_hewan')
+      .eq('username_dh', username);
+
+    if (countError) {
+      console.error('Error fetching medical records for stats:', countError);
+      return { totalAnimals: 0, totalRecords: 0 };
+    }
+
+    console.log('Medical records for stats:', medicalRecords);
+
+    if (!medicalRecords || medicalRecords.length === 0) {
+      console.log('No medical records found for statistics');
+      return { totalAnimals: 0, totalRecords: 0 };
+    }
+
+    // Count unique animals
+    const uniqueAnimals = new Set(medicalRecords.map(record => record.id_hewan));
+    const totalAnimals = uniqueAnimals.size;
+    const totalRecords = medicalRecords.length;
+
+    console.log('✅ Veterinarian statistics:', { 
+      totalAnimals, 
+      totalRecords,
+      uniqueAnimalIds: Array.from(uniqueAnimals)
+    });
+    
+    return { totalAnimals, totalRecords };
+    
+  } catch (error) {
+    console.error('Error fetching veterinarian statistics:', error);
+    return { totalAnimals: 0, totalRecords: 0 };
+  }
+};
+
+
+// Function to get veterinarian specializations
+export const getVeterinarianSpecializations = async (username: string) => {
+  try {
+    const supabase = await createClient();
+    
+    console.log('Fetching specializations for veterinarian:', username);
+    
+    const { data: specializations, error: specError } = await supabase
+      .schema('sizopi')
+      .from('spesialisasi')
+      .select('nama_spesialisasi')
+      .eq('username_sh', username);
+
+    if (specError) {
+      console.error('Error fetching specializations:', specError);
+      return [];
+    }
+
+    const specList = specializations?.map(spec => spec.nama_spesialisasi) || [];
+    
+    console.log('✅ Specializations fetched:', specList);
+    return specList;
+    
+  } catch (error) {
+    console.error('Error fetching veterinarian specializations:', error);
+    return [];
+  }
+};
+
+// Enhanced function to get complete veterinarian profile
+export const getVeterinarianProfile = async (username: string) => {
+  try {
+    const supabase = await createClient();
+
+    console.log('=== FETCHING VETERINARIAN PROFILE ===');
+    console.log('Username:', username);
+
+    // Get basic user data
+    const { data: userData, error: userError } = await supabase
+      .schema('sizopi')
+      .from('pengguna')
+      .select('*')
+      .eq('username', username)
+      .single();
+
+    if (userError || !userData) {
+      console.error('User data fetch error:', userError);
+      return null;
+    }
+
+    // Get veterinarian-specific data
+    const { data: vetData, error: vetError } = await supabase
+      .schema('sizopi')
+      .from('dokter_hewan')
+      .select('no_str')
+      .eq('username_dh', username)
+      .single();
+
+    if (vetError || !vetData) {
+      console.error('Veterinarian data fetch error:', vetError);
+      return null;
+    }
+
+    // Get specializations
+    const specializations = await getVeterinarianSpecializations(username);
+
+    // Get statistics
+    const stats = await getVeterinarianStats(username);
+
+    const veterinarianProfile = {
+      username: userData.username,
+      email: userData.email,
+      password: userData.password,
+      nama_depan: userData.nama_depan,
+      nama_tengah: userData.nama_tengah,
+      nama_belakang: userData.nama_belakang,
+      no_telepon: userData.no_telepon,
+      role: 'dokter_hewan' as UserRole,
+      roleSpecificData: {
+        no_str: vetData.no_str,
+        spesialisasi: specializations,
+        totalAnimals: stats.totalAnimals,
+        totalRecords: stats.totalRecords
+      }
+    };
+
+    console.log('✅ Complete veterinarian profile assembled:', veterinarianProfile);
+    return veterinarianProfile;
+
+  } catch (error) {
+    console.error('Error fetching veterinarian profile:', error);
+    return null;
+  }
+};
+
+
+// Function to get animal keeper profile with feeding statistics
+export const getAnimalKeeperProfile = async (username: string) => {
+  try {
+    const supabase = await createClient();
+
+    console.log('=== FETCHING ANIMAL KEEPER PROFILE ===');
+    console.log('Username:', username);
+
+    // Get basic user data
+    const { data: userData, error: userError } = await supabase
+      .schema('sizopi')
+      .from('pengguna')
+      .select('*')
+      .eq('username', username)
+      .single();
+
+    if (userError || !userData) {
+      console.error('User data fetch error:', userError);
+      return null;
+    }
+
+    // Get animal keeper specific data
+    const { data: keeperData, error: keeperError } = await supabase
+      .schema('sizopi')
+      .from('penjaga_hewan')
+      .select('id_staf')
+      .eq('username_jh', username)
+      .single();
+
+    if (keeperError || !keeperData) {
+      console.error('Animal keeper data fetch error:', keeperError);
+      return null;
+    }
+
+    // Get feeding statistics
+    const feedingStats = await getAnimalKeeperFeedingStats(username);
+
+    const animalKeeperProfile = {
+      username: userData.username,
+      email: userData.email,
+      password: userData.password,
+      nama_depan: userData.nama_depan,
+      nama_tengah: userData.nama_tengah,
+      nama_belakang: userData.nama_belakang,
+      no_telepon: userData.no_telepon,
+      role: 'staff' as UserRole,
+      roleSpecificData: {
+        id_staf: keeperData.id_staf,
+        peran: 'Penjaga Hewan',
+        totalAnimalsFed: feedingStats.totalAnimalsFed,
+        totalFeedingRecords: feedingStats.totalFeedingRecords
+      }
+    };
+
+    console.log('✅ Complete animal keeper profile assembled:', animalKeeperProfile);
+    return animalKeeperProfile;
+
+  } catch (error) {
+    console.error('Error fetching animal keeper profile:', error);
+    return null;
+  }
+};
+
+// Function to get animal keeper feeding statistics
+export const getAnimalKeeperFeedingStats = async (username: string) => {
+  try {
+    const supabase = await createClient();
+    
+    console.log('Fetching feeding statistics for animal keeper:', username);
+    
+    // Get all feeding records for this keeper
+    const { data: feedingRecords, error: feedingError } = await supabase
+      .schema('sizopi')
+      .from('memberi')
+      .select('id_hewan, jadwal')
+      .eq('username_jh', username);
+
+    if (feedingError) {
+      console.error('Error fetching feeding records:', feedingError);
+      return { totalAnimalsFed: 0, totalFeedingRecords: 0 };
+    }
+
+    if (!feedingRecords || feedingRecords.length === 0) {
+      console.log('No feeding records found for animal keeper');
+      return { totalAnimalsFed: 0, totalFeedingRecords: 0 };
+    }
+
+    // Count unique animals fed
+    const uniqueAnimals = new Set(feedingRecords.map(record => record.id_hewan));
+    const totalAnimalsFed = uniqueAnimals.size;
+    const totalFeedingRecords = feedingRecords.length;
+
+    console.log('✅ Feeding statistics:', { 
+      totalAnimalsFed, 
+      totalFeedingRecords,
+      uniqueAnimalIds: Array.from(uniqueAnimals)
+    });
+    
+    return { totalAnimalsFed, totalFeedingRecords };
+    
+  } catch (error) {
+    console.error('Error fetching feeding statistics:', error);
+    return { totalAnimalsFed: 0, totalFeedingRecords: 0 };
+  }
+};
+
+// Function to get recently fed animals by this keeper
+export const getRecentlyFedAnimals = async (username: string) => {
+  try {
+    const supabase = await createClient();
+    
+    console.log('Fetching recently fed animals for keeper:', username);
+    
+    // Get feeding records for this keeper
+    const { data: feedingRecords, error: feedingError } = await supabase
+      .schema('sizopi')
+      .from('memberi')
+      .select('id_hewan, jadwal')
+      .eq('username_jh', username)
+      .order('jadwal', { ascending: false })
+      .limit(10);
+
+    if (feedingError) {
+      console.error('Error fetching feeding records:', feedingError);
+      return [];
+    }
+
+    if (!feedingRecords || feedingRecords.length === 0) {
+      console.log('No feeding records found');
+      return [];
+    }
+
+    console.log('Feeding records found:', feedingRecords);
+
+    // Get unique animal IDs
+    const animalIds = Array.from(new Set(feedingRecords.map(record => record.id_hewan)));
+    
+    // Fetch animal information
+    const { data: animals, error: animalError } = await supabase
+      .schema('sizopi')
+      .from('hewan')
+      .select('id, nama, spesies')
+      .in('id', animalIds);
+
+    if (animalError) {
+      console.error('Error fetching animal data:', animalError);
+      return [];
+    }
+
+    console.log('Animal data found:', animals);
+
+    // Create a map for quick animal lookup
+    const animalMap = new Map();
+    if (animals) {
+      animals.forEach(animal => {
+        animalMap.set(animal.id, {
+          nama: animal.nama,
+          spesies: animal.spesies
+        });
+      });
+    }
+
+    // Transform the data to match the interface
+    const recentlyFedAnimals = feedingRecords.map(feeding => {
+      const animalInfo = animalMap.get(feeding.id_hewan);
+      return {
+        animalId: feeding.id_hewan,
+        animalName: animalInfo?.nama || 'Unknown Animal',
+        type: animalInfo?.spesies || 'Unknown Species',
+        lastFed: new Date(feeding.jadwal).toLocaleString('id-ID', {
+          year: 'numeric',
+          month: 'long',
+          day: 'numeric',
+          hour: '2-digit',
+          minute: '2-digit'
+        })
+      };
+    });
+
+    console.log('✅ Recently fed animals transformed:', recentlyFedAnimals);
+    return recentlyFedAnimals;
+    
+  } catch (error) {
+    console.error('Error fetching recently fed animals:', error);
+    return [];
+  }
+};
+
+
+// Function to get staff admin profile
+export const getStaffAdminProfile = async (username: string) => {
+  try {
+    const supabase = await createClient();
+
+    console.log('=== FETCHING STAFF ADMIN PROFILE ===');
+    console.log('Username:', username);
+
+    // Get basic user data
+    const { data: userData, error: userError } = await supabase
+      .schema('sizopi')
+      .from('pengguna')
+      .select('*')
+      .eq('username', username)
+      .single();
+
+    if (userError || !userData) {
+      console.error('User data fetch error:', userError);
+      return null;
+    }
+
+    // Get staff admin specific data
+    const { data: staffData, error: staffError } = await supabase
+      .schema('sizopi')
+      .from('staf_admin')
+      .select('id_staf')
+      .eq('username_sa', username)
+      .single();
+
+    if (staffError || !staffData) {
+      console.error('Staff admin data fetch error:', staffError);
+      return null;
+    }
+
+    const staffAdminProfile = {
+      username: userData.username,
+      email: userData.email,
+      password: userData.password,
+      nama_depan: userData.nama_depan,
+      nama_tengah: userData.nama_tengah,
+      nama_belakang: userData.nama_belakang,
+      no_telepon: userData.no_telepon,
+      role: 'staff' as UserRole,
+      roleSpecificData: {
+        id_staf: staffData.id_staf,
+        peran: 'Staf Administrasi'
+      }
+    };
+
+    console.log('✅ Complete staff admin profile assembled:', staffAdminProfile);
+    return staffAdminProfile;
+
+  } catch (error) {
+    console.error('Error fetching staff admin profile:', error);
+    return null;
+  }
+};
+
+// Function to get today's ticket sales from reservasi table
+export const getTodayTicketSales = async () => {
+  try {
+    const supabase = await createClient();
+    
+    console.log('Fetching today\'s ticket sales...');
+    
+    // Get today's date in YYYY-MM-DD format
+    const today = new Date().toISOString().split('T')[0];
+    
+    // Get reservations for today
+    const { data: reservations, error: reservationError } = await supabase
+      .schema('sizopi')
+      .from('reservasi')
+      .select(`
+        *,
+        fasilitas!inner(nama, jadwal, kapasitas_max)
+      `)
+      .eq('tanggal_kunjungan', today)
+      .eq('status', 'Confirmed');
+
+    if (reservationError) {
+      console.error('Error fetching today\'s reservations:', reservationError);
+      return [];
+    }
+
+    if (!reservations || reservations.length === 0) {
+      console.log('No ticket sales found for today');
+      return [];
+    }
+
+    // Transform reservations to ticket sales format
+    const ticketSales = reservations.map((reservation, index) => ({
+      id: index + 1,
+      facilityName: reservation.nama_fasilitas,
+      visitorUsername: reservation.username_p,
+      ticketCount: reservation.jumlah_tiket,
+      visitDate: reservation.tanggal_kunjungan,
+      status: reservation.status,
+      facilitySchedule: reservation.fasilitas.jadwal,
+      facilityCapacity: reservation.fasilitas.kapasitas_max
+    }));
+
+    console.log('✅ Today\'s ticket sales fetched:', ticketSales);
+    return ticketSales;
+    
+  } catch (error) {
+    console.error('Error fetching today\'s ticket sales:', error);
+    return [];
+  }
+};
+
+// Function to get today's visitor count
+export const getTodayVisitorCount = async () => {
+  try {
+    const supabase = await createClient();
+    
+    console.log('Fetching today\'s visitor count...');
+    
+    // Get today's date in YYYY-MM-DD format
+    const today = new Date().toISOString().split('T')[0];
+    
+    // Get unique visitors for today from reservasi
+    const { data: reservations, error: reservationError } = await supabase
+      .schema('sizopi')
+      .from('reservasi')
+      .select('username_p, jumlah_tiket')
+      .eq('tanggal_kunjungan', today)
+      .eq('status', 'Confirmed');
+
+    if (reservationError) {
+      console.error('Error fetching today\'s visitor count:', reservationError);
+      return 0;
+    }
+
+    if (!reservations || reservations.length === 0) {
+      console.log('No visitors found for today');
+      return 0;
+    }
+
+    // Sum up all ticket counts (total visitors including group bookings)
+    const totalVisitors = reservations.reduce((sum, reservation) => sum + reservation.jumlah_tiket, 0);
+
+    console.log('✅ Today\'s visitor count:', totalVisitors);
+    return totalVisitors;
+    
+  } catch (error) {
+    console.error('Error fetching today\'s visitor count:', error);
+    return 0;
+  }
+};
+
+// Function to get weekly revenue from adoption contributions
+export const getWeeklyAdoptionRevenueForAdmin = async () => {
+  try {
+    const supabase = await createClient();
+    
+    console.log('Fetching weekly adoption revenue for admin...');
+    
+    // Get dates for the past 7 days
+    const dates = [];
+    for (let i = 6; i >= 0; i--) {
+      const date = new Date();
+      date.setDate(date.getDate() - i);
+      dates.push(date.toISOString().split('T')[0]);
+    }
+
+    const weeklyData = [];
+    const dayNames = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
+
+    for (const date of dates) {
+      // Get adoptions for this date
+      const { data: adoptions, error: adoptionError } = await supabase
+        .schema('sizopi')
+        .from('adopsi')
+        .select('kontribusi_finansial')
+        .eq('tgl_mulai_adopsi', date)
+        .eq('status_pembayaran', 'Lunas');
+
+      if (adoptionError) {
+        console.error(`Error fetching adoptions for ${date}:`, adoptionError);
+        continue;
+      }
+
+      // Calculate revenue from adoption contributions
+      const revenue = adoptions?.reduce((sum, adoption) => sum + adoption.kontribusi_finansial, 0) || 0;
+
+      const dayOfWeek = new Date(date).getDay();
+      weeklyData.push({
+        day: dayNames[dayOfWeek],
+        amount: revenue,
+        date: date
+      });
+    }
+
+    console.log('✅ Weekly adoption revenue data for admin fetched:', weeklyData);
+    return weeklyData;
+    
+  } catch (error) {
+    console.error('Error fetching weekly adoption revenue for admin:', error);
+    return [];
+  }
+};
+
+// Function to get staff admin dashboard stats
+export const getStaffAdminStats = async () => {
+  try {
+    console.log('Fetching staff admin dashboard stats...');
+    
+    const [ticketSales, visitorCount, weeklyRevenue] = await Promise.all([
+      getTodayTicketSales(),
+      getTodayVisitorCount(),
+      getWeeklyAdoptionRevenueForAdmin()
+    ]);
+
+    // Calculate today's total ticket sales count
+    const totalTicketSalesToday = ticketSales.reduce((sum, sale) => sum + sale.ticketCount, 0);
+
+    // Calculate weekly total revenue
+    const totalWeeklyRevenue = weeklyRevenue.reduce((sum, day) => sum + day.amount, 0);
+
+    const stats = {
+      todayTicketSales: ticketSales,
+      totalTicketSalesToday,
+      totalVisitorsToday: visitorCount,
+      weeklyRevenueData: weeklyRevenue,
+      totalWeeklyRevenue
+    };
+
+    console.log('✅ Staff admin stats compiled:', stats);
+    return stats;
+    
+  } catch (error) {
+    console.error('Error fetching staff admin stats:', error);
+    return {
+      todayTicketSales: [],
+      totalTicketSalesToday: 0,
+      totalVisitorsToday: 0,
+      weeklyRevenueData: [],
+      totalWeeklyRevenue: 0
+    };
+  }
+};
+
+// Function to get animal trainer profile
+export const getAnimalTrainerProfile = async (username: string) => {
+  try {
+    const supabase = await createClient();
+
+    console.log('=== FETCHING ANIMAL TRAINER PROFILE ===');
+    console.log('Username:', username);
+
+    // Get basic user data
+    const { data: userData, error: userError } = await supabase
+      .schema('sizopi')
+      .from('pengguna')
+      .select('*')
+      .eq('username', username)
+      .single();
+
+    if (userError || !userData) {
+      console.error('User data fetch error:', userError);
+      return null;
+    }
+
+    // Get animal trainer specific data
+    const { data: trainerData, error: trainerError } = await supabase
+      .schema('sizopi')
+      .from('pelatih_hewan')
+      .select('id_staf')
+      .eq('username_lh', username)
+      .single();
+
+    if (trainerError || !trainerData) {
+      console.error('Animal trainer data fetch error:', trainerError);
+      return null;
+    }
+
+    // Get trainer statistics
+    const trainerStats = await getAnimalTrainerStats(username);
+
+    const animalTrainerProfile = {
+      username: userData.username,
+      email: userData.email,
+      password: userData.password,
+      nama_depan: userData.nama_depan,
+      nama_tengah: userData.nama_tengah,
+      nama_belakang: userData.nama_belakang,
+      no_telepon: userData.no_telepon,
+      role: 'staff' as UserRole,
+      roleSpecificData: {
+        id_staf: trainerData.id_staf,
+        peran: 'Pelatih Hewan',
+        totalShows: trainerStats.totalShows,
+        totalAnimals: trainerStats.totalAnimals
+      }
+    };
+
+    console.log('✅ Complete animal trainer profile assembled:', animalTrainerProfile);
+    return animalTrainerProfile;
+
+  } catch (error) {
+    console.error('Error fetching animal trainer profile:', error);
+    return null;
+  }
+};
+
+// Function to get trainer statistics
+export const getAnimalTrainerStats = async (username: string) => {
+  try {
+    const supabase = await createClient();
+    
+    console.log('Fetching trainer statistics for:', username);
+    
+    // Get all assignments for this trainer
+    const { data: assignments, error: assignmentError } = await supabase
+      .schema('sizopi')
+      .from('jadwal_penugasan')
+      .select('nama_atraksi')
+      .eq('username_lh', username);
+
+    if (assignmentError) {
+      console.error('Error fetching assignments:', assignmentError);
+      return { totalShows: 0, totalAnimals: 0 };
+    }
+
+    const totalShows = assignments?.length || 0;
+
+    // Get animals participating in trainer's attractions
+    if (assignments && assignments.length > 0) {
+      const attractionNames = assignments.map(a => a.nama_atraksi);
+      
+      const { data: participations, error: participationError } = await supabase
+        .schema('sizopi')
+        .from('berpartisipasi')
+        .select('id_hewan')
+        .in('nama_fasilitas', attractionNames);
+
+      if (participationError) {
+        console.error('Error fetching animal participations:', participationError);
+        return { totalShows, totalAnimals: 0 };
+      }
+
+      const uniqueAnimals = new Set(participations?.map(p => p.id_hewan) || []);
+      const totalAnimals = uniqueAnimals.size;
+
+      return { totalShows, totalAnimals };
+    }
+
+    return { totalShows, totalAnimals: 0 };
+    
+  } catch (error) {
+    console.error('Error fetching trainer statistics:', error);
+    return { totalShows: 0, totalAnimals: 0 };
+  }
+};
+
+// Function to get today's show schedule for trainer
+export const getTodayShowSchedule = async (username: string) => {
+  try {
+    const supabase = await createClient();
+    
+    console.log('Fetching today\'s show schedule for trainer:', username);
+    
+    // Get today's date range
+    const today = new Date();
+    const todayStart = new Date(today.getFullYear(), today.getMonth(), today.getDate());
+    const todayEnd = new Date(today.getFullYear(), today.getMonth(), today.getDate() + 1);
+
+    console.log('Date range:', { todayStart: todayStart.toISOString(), todayEnd: todayEnd.toISOString() });
+
+    // Get trainer's assignments for today
+    const { data: assignments, error: assignmentError } = await supabase
+      .schema('sizopi')
+      .from('jadwal_penugasan')
+      .select('nama_atraksi, tgl_penugasan')
+      .eq('username_lh', username)
+      .gte('tgl_penugasan', todayStart.toISOString())
+      .lt('tgl_penugasan', todayEnd.toISOString())
+      .order('tgl_penugasan', { ascending: true });
+
+    if (assignmentError) {
+      console.error('Error fetching today\'s assignments:', assignmentError);
+      return [];
+    }
+
+    if (!assignments || assignments.length === 0) {
+      console.log('No shows scheduled for today');
+      return [];
+    }
+
+    console.log('Found assignments:', assignments);
+
+    // Get attraction details for each assignment
+    const showsWithDetails = await Promise.all(
+      assignments.map(async (assignment) => {
+        // Get attraction details
+        const { data: atraksiData, error: atraksiError } = await supabase
+          .schema('sizopi')
+          .from('atraksi')
+          .select('nama_atraksi, lokasi')
+          .eq('nama_atraksi', assignment.nama_atraksi)
+          .single();
+
+        if (atraksiError) {
+          console.error('Error fetching attraction details:', atraksiError);
+        }
+
+        // Get facility details
+        const { data: fasilitasData, error: fasilitasError } = await supabase
+          .schema('sizopi')
+          .from('fasilitas')
+          .select('nama, jadwal, kapasitas_max')
+          .eq('nama', assignment.nama_atraksi)
+          .single();
+
+        if (fasilitasError) {
+          console.error('Error fetching facility details:', fasilitasError);
+        }
+
+        // Get animals for this attraction
+        const { data: participations, error: participationError } = await supabase
+          .schema('sizopi')
+          .from('berpartisipasi')
+          .select('id_hewan')
+          .eq('nama_fasilitas', assignment.nama_atraksi);
+
+        if (participationError) {
+          console.error('Error fetching animals for attraction:', participationError);
+        }
+
+        // Get animal details
+        let animals: Array<{ id: string; name: string; species: string }> = [];
+        if (participations && participations.length > 0) {
+          const animalIds = participations.map(p => p.id_hewan);
+          
+          const { data: animalData, error: animalError } = await supabase
+            .schema('sizopi')
+            .from('hewan')
+            .select('id, nama, spesies')
+            .in('id', animalIds);
+
+          if (animalError) {
+            console.error('Error fetching animal details:', animalError);
+          } else if (animalData) {
+            animals = animalData.map(animal => ({
+              id: animal.id,
+              name: animal.nama,
+              species: animal.spesies
+            }));
+          }
+        }
+
+        return {
+          id: assignment.nama_atraksi,
+          title: assignment.nama_atraksi,
+          time: fasilitasData ? new Date(fasilitasData.jadwal).toLocaleTimeString('id-ID', {
+            hour: '2-digit',
+            minute: '2-digit'
+          }) : 'TBA',
+          location: atraksiData?.lokasi || 'Unknown Location',
+          animals: animals.map(a => a.name),
+          animalDetails: animals,
+          status: 'Upcoming',
+          capacity: fasilitasData?.kapasitas_max || 0
+        };
+      })
+    );
+
+    console.log('✅ Today\'s show schedule fetched:', showsWithDetails);
+    return showsWithDetails;
+    
+  } catch (error) {
+    console.error('Error fetching today\'s show schedule:', error);
+    return [];
+  }
+};
+
+// Function to get trained animals by trainer
+export const getTrainedAnimalsByTrainer = async (username: string) => {
+  try {
+    const supabase = await createClient();
+    
+    console.log('Fetching trained animals for trainer:', username);
+    
+    // Get trainer's attractions
+    const { data: assignments, error: assignmentError } = await supabase
+      .schema('sizopi')
+      .from('jadwal_penugasan')
+      .select('nama_atraksi, tgl_penugasan')
+      .eq('username_lh', username)
+      .order('tgl_penugasan', { ascending: false });
+
+    if (assignmentError) {
+      console.error('Error fetching trainer assignments:', assignmentError);
+      return [];
+    }
+
+    if (!assignments || assignments.length === 0) {
+      console.log('No assignments found for trainer');
+      return [];
+    }
+
+    console.log('Found assignments:', assignments);
+
+    const attractionNames = Array.from(new Set(assignments.map(a => a.nama_atraksi)));
+
+    // Get animals participating in these attractions
+    const { data: participations, error: participationError } = await supabase
+      .schema('sizopi')
+      .from('berpartisipasi')
+      .select('id_hewan, nama_fasilitas')
+      .in('nama_fasilitas', attractionNames);
+
+    if (participationError) {
+      console.error('Error fetching animal participations:', participationError);
+      return [];
+    }
+
+    if (!participations || participations.length === 0) {
+      console.log('No animals found for trainer\'s attractions');
+      return [];
+    }
+
+    console.log('Found participations:', participations);
+
+    // Get animal details
+    const animalIds = Array.from(new Set(participations.map(p => p.id_hewan)));
+    
+    const { data: animals, error: animalError } = await supabase
+      .schema('sizopi')
+      .from('hewan')
+      .select('id, nama, spesies, status_kesehatan')
+      .in('id', animalIds);
+
+    if (animalError) {
+      console.error('Error fetching animal details:', animalError);
+      return [];
+    }
+
+    if (!animals || animals.length === 0) {
+      console.log('No animal details found');
+      return [];
+    }
+
+    console.log('Found animals:', animals);
+
+    // Create a map of latest training dates for each attraction
+    const latestTrainingMap = new Map();
+    assignments.forEach(assignment => {
+      if (!latestTrainingMap.has(assignment.nama_atraksi)) {
+        latestTrainingMap.set(assignment.nama_atraksi, assignment.tgl_penugasan);
+      }
+    });
+
+    // Create a map of animal to attraction
+    const animalAttractionMap = new Map();
+    participations.forEach(participation => {
+      animalAttractionMap.set(participation.id_hewan, participation.nama_fasilitas);
+    });
+
+    // Transform data to match interface
+    const trainedAnimals = animals.map(animal => {
+      const attraction = animalAttractionMap.get(animal.id);
+      const latestTraining = latestTrainingMap.get(attraction);
+      const trainingDate = latestTraining ? new Date(latestTraining) : new Date();
+      
+      // Determine training status based on health and recent activity
+      let trainingStatus = 'Beginner';
+      if (animal.status_kesehatan === 'Sehat') {
+        const daysSinceTraining = Math.floor((Date.now() - trainingDate.getTime()) / (1000 * 60 * 60 * 24));
+        if (daysSinceTraining <= 7) {
+          trainingStatus = 'Advanced';
+        } else if (daysSinceTraining <= 30) {
+          trainingStatus = 'Intermediate';
+        }
+      }
+
+      return {
+        animalId: animal.id,
+        animalName: animal.nama || 'Unknown',
+        species: animal.spesies,
+        trainingStatus: trainingStatus,
+        lastTraining: trainingDate.toLocaleDateString('id-ID', {
+          year: 'numeric',
+          month: 'long',
+          day: 'numeric'
+        }),
+        attraction: attraction || 'Unknown',
+        healthStatus: animal.status_kesehatan
+      };
+    });
+
+    console.log('✅ Trained animals fetched:', trainedAnimals);
+    return trainedAnimals;
+    
+  } catch (error) {
+    console.error('Error fetching trained animals:', error);
+    return [];
+  }
+};
+// Function to check if user is an animal trainer
+export const isAnimalTrainer = async (username: string): Promise<boolean> => {
+  try {
+    const supabase = await createClient();
+    
+    const { data: trainerData, error } = await supabase
+      .schema('sizopi')
+      .from('pelatih_hewan')
+      .select('username_lh')
+      .eq('username_lh', username)
+      .single();
+
+    return !error && !!trainerData;
+  } catch (error) {
+    console.error('Error checking trainer status:', error);
+    return false;
+  }
 };

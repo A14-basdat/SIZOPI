@@ -7,6 +7,7 @@ import Link from "next/link";
 
 export default async function Login(props: { searchParams: Promise<Message> }) {
   const searchParams = await props.searchParams;
+  
   return (
     <div className="min-h-screen flex items-center justify-center bg-gray-50 py-12 px-4 sm:px-6 lg:px-8">
       <div className="max-w-md w-full space-y-8">
@@ -21,6 +22,7 @@ export default async function Login(props: { searchParams: Promise<Message> }) {
             </Link>
           </p>
         </div>
+        
         <form className="mt-8 space-y-6">
           <div className="space-y-4">
             <div>
@@ -52,6 +54,13 @@ export default async function Login(props: { searchParams: Promise<Message> }) {
             </div>
           </div>
           
+          {/* Display error/success messages from stored procedures */}
+          {searchParams && (
+            <div className="mt-4">
+              <FormMessage message={searchParams} />
+            </div>
+          )}
+          
           <div>
             <SubmitButton 
               pendingText="Signing In..." 
@@ -61,8 +70,6 @@ export default async function Login(props: { searchParams: Promise<Message> }) {
               Sign in
             </SubmitButton>
           </div>
-          
-          <FormMessage message={searchParams} />
         </form>
       </div>
     </div>
