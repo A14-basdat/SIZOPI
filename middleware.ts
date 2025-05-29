@@ -1,70 +1,77 @@
-import { NextResponse } from 'next/server'
-import type { NextRequest } from 'next/server'
+import { NextResponse } from 'next/server';
+import type { NextRequest } from 'next/server';
 
 export function middleware(request: NextRequest) {
-  const session = request.cookies.get('session')?.value;
-  const pathname = request.nextUrl.pathname;
+  // Get the pathname of the request (e.g. /, /protected)
+  const path = request.nextUrl.pathname;
 
-  console.log('=== MIDDLEWARE CHECK ===');
-  console.log('Path:', pathname);
-  console.log('Has session:', !!session);
+  // Check if the path is a protected route
+  const isProtectedRoute = path.startsWith('/protected');
 
-  // Parse session if exists
-  let sessionData = null;
-  if (session) {
+  if (isProtectedRoute) {
+    // Get the session cookie
+    const sessionCookie = request.cookies.get('session');
+
+    if (!sessionCookie) {
+      // No session found, redirect to sign-in
+      return NextResponse.redirect(new URL('/sign-in', request.url));
+    }
+
     try {
-      sessionData = JSON.parse(session);
+      // Parse the session data
+      const sessionData = JSON.parse(sessionCookie.value);
       
       // Check if session is expired (24 hours)
       const sessionAge = Date.now() - sessionData.timestamp;
       const maxAge = 24 * 60 * 60 * 1000; // 24 hours
       
       if (sessionAge > maxAge) {
-        console.log('Session expired');
-        sessionData = null;
-        // Clear expired session
+        // Session expired, redirect to sign-in
         const response = NextResponse.redirect(new URL('/sign-in', request.url));
         response.cookies.delete('session');
         return response;
       }
+
+      // Role-based route protection
+      const userRole = sessionData.role;
+      const userData = sessionData.userData;
+      
+      // Check specific role-based routes
+      if (path.startsWith('/protected/dashboard/pengunjung') && userRole !== 'pengunjung') {
+        return NextResponse.redirect(new URL('/protected', request.url));
+      }
+      
+      if (path.startsWith('/protected/dashboard/dokter-hewan') && userRole !== 'dokter_hewan') {
+        return NextResponse.redirect(new URL('/protected', request.url));
+      }
+      
+      // For staff routes, check both role and specific staff type
+      if (path.startsWith('/protected/dashboard/penjaga-hewan')) {
+        if (userRole !== 'staff' || userData?.roleSpecificData?.peran !== 'penjaga') {
+          return NextResponse.redirect(new URL('/protected', request.url));
+        }
+      }
+      
+      if (path.startsWith('/protected/dashboard/staf-administrasi')) {
+        if (userRole !== 'staff' || userData?.roleSpecificData?.peran !== 'admin') {
+          return NextResponse.redirect(new URL('/protected', request.url));
+        }
+      }
+      
+      if (path.startsWith('/protected/dashboard/staf-pelatih')) {
+        if (userRole !== 'staff' || userData?.roleSpecificData?.peran !== 'pelatih') {
+          return NextResponse.redirect(new URL('/protected', request.url));
+        }
+      }
+
     } catch (error) {
-      console.log('Invalid session data');
-      sessionData = null;
+      // Invalid session data, redirect to sign-in
+      const response = NextResponse.redirect(new URL('/sign-in', request.url));
+      response.cookies.delete('session');
+      return response;
     }
   }
 
-  // Protected routes - require authentication
-  if (pathname.startsWith('/protected')) {
-    if (!sessionData) {
-      console.log('Redirecting to sign-in: No valid session');
-      return NextResponse.redirect(new URL('/sign-in', request.url));
-    }
-    console.log('Access granted to protected route');
-    return NextResponse.next();
-  }
-
-  // Auth routes - redirect if already authenticated
-  if (pathname === '/sign-in' || pathname === '/sign-up') {
-    if (sessionData) {
-      console.log('Redirecting to protected: Already authenticated');
-      return NextResponse.redirect(new URL('/protected', request.url));
-    }
-    console.log('Access granted to auth route');
-    return NextResponse.next();
-  }
-
-  // Root route - redirect based on auth status
-  if (pathname === '/') {
-    if (sessionData) {
-      console.log('Redirecting authenticated user to protected area');
-      return NextResponse.redirect(new URL('/protected', request.url));
-    } else {
-      console.log('Redirecting unauthenticated user to sign-in');
-      return NextResponse.redirect(new URL('/sign-in', request.url));
-    }
-  }
-
-  console.log('Allowing access to public route');
   return NextResponse.next();
 }
 
@@ -79,4 +86,4 @@ export const config = {
      */
     '/((?!api|_next/static|_next/image|favicon.ico).*)',
   ],
-}
+};

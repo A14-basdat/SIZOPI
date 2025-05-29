@@ -21,13 +21,8 @@ export default function Signup({ searchParams }: SignupProps) {
   const [selectedSpesialisasi, setSelectedSpesialisasi] = useState<string[]>([]);
   const [customSpesialisasi, setCustomSpesialisasi] = useState('');
 
-  if (resolvedSearchParams && "message" in resolvedSearchParams) {
-    return (
-      <div className="w-full flex-1 flex items-center h-screen sm:max-w-md justify-center gap-2 p-4">
-        <FormMessage message={resolvedSearchParams} />
-      </div>
-    );
-  }
+  // Debug: Log the search params to see what we're getting
+  console.log('Sign-up page search params:', resolvedSearchParams);
 
   const handleSpesialisasiChange = (spesialisasi: string, checked: boolean) => {
     if (checked) {
@@ -69,6 +64,13 @@ export default function Signup({ searchParams }: SignupProps) {
         </div>
 
         <form className="mt-8 space-y-6">
+          {/* Display error/success messages from stored procedures and triggers */}
+          {resolvedSearchParams && (
+            <div className="mb-6">
+              <FormMessage message={resolvedSearchParams} />
+            </div>
+          )}
+
           {/* Role Selection */}
           <div className="space-y-4">
             <div>
@@ -117,7 +119,11 @@ export default function Signup({ searchParams }: SignupProps) {
               <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                 <div>
                   <Label htmlFor="username">Username *</Label>
-                  <Input name="username" required className="mt-1" />
+                  <Input 
+                    name="username" 
+                    required 
+                    className={`mt-1 ${resolvedSearchParams && 'error' in resolvedSearchParams ? 'border-red-300 focus:border-red-500 focus:ring-red-500' : ''}`}
+                  />
                 </div>
                 <div>
                   <Label htmlFor="email">Email *</Label>
@@ -287,8 +293,6 @@ export default function Signup({ searchParams }: SignupProps) {
               </div>
             </>
           )}
-
-          {resolvedSearchParams && <FormMessage message={resolvedSearchParams} />}
         </form>
       </div>
     </div>

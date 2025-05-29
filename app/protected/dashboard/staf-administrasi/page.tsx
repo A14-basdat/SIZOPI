@@ -1,10 +1,12 @@
 "use client";
 
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import { BarChart, CartesianGrid, XAxis, YAxis, Tooltip, Bar, ResponsiveContainer } from 'recharts';
-import { User, Mail, Phone, Calendar, Search, Bell, Menu, LogOut, Ticket, Users, DollarSign, FileText, Settings, ChevronDown } from 'lucide-react';
+import { User, Mail, Phone, Calendar, Search, Bell, Menu, LogOut, Ticket, Users, DollarSign, FileText, Settings, ChevronDown, Shield } from 'lucide-react';
 import React, { ReactNode } from 'react';
 import { JSX } from 'react/jsx-runtime';
+import { getCurrentSession, getStaffAdminProfile, getStaffAdminStats, signOutAction } from '@/app/actions';
+import { redirect } from 'next/navigation';
 
 // TypeScript interfaces
 interface SidebarItemProps {
@@ -25,62 +27,154 @@ interface StatCardProps {
 
 interface TicketSale {
   id: number;
-  type: string;
-  time: string;
-  price: string;
-  quantity: number;
+  facilityName: string;
+  visitorUsername: string;
+  ticketCount: number;
+  visitDate: string;
+  status: string;
+  facilitySchedule?: string;
+  facilityCapacity?: number;
 }
 
 interface WeeklyRevenue {
   day: string;
   amount: number;
+  date?: string;
 }
 
-// Sample admin staff data
-const staffData = {
-  fullName: "Michael Rodriguez",
-  username: "michael.admin",
-  email: "m.rodriguez@sizopi.com",
-  phoneNumber: "+1 (555) 987-6543",
-  role: "Staff Administration",
-  staffID: "STAFF-2025-0042"
-};
+interface StaffAdminProfile {
+  username: string;
+  email: string;
+  nama_depan: string;
+  nama_tengah?: string;
+  nama_belakang: string;
+  no_telepon: string;
+  roleSpecificData?: {
+    id_staf: string;
+    peran: string;
+  };
+}
 
-// Sample ticket sales data
-const todayTicketSales: TicketSale[] = [
-  { id: 1, type: "Adult Full Day Pass", time: "10:15 AM", price: "$24.99", quantity: 2 },
-  { id: 2, type: "Child Full Day Pass", time: "10:15 AM", price: "$14.99", quantity: 1 },
-  { id: 3, type: "Family Pack (2+2)", time: "11:30 AM", price: "$69.99", quantity: 1 },
-  { id: 4, type: "Senior Citizen Pass", time: "12:45 PM", price: "$18.99", quantity: 2 },
-  { id: 5, type: "Safari Experience Add-on", time: "1:20 PM", price: "$15.00", quantity: 3 },
-];
+interface DashboardStats {
+  todayTicketSales: TicketSale[];
+  totalTicketSalesToday: number;
+  totalVisitorsToday: number;
+  weeklyRevenueData: WeeklyRevenue[];
+  totalWeeklyRevenue: number;
+}
 
-// Sample weekly revenue data
-const weeklyRevenueData: WeeklyRevenue[] = [
-  { day: "Mon", amount: 1250 },
-  { day: "Tue", amount: 1420 },
-  { day: "Wed", amount: 1650 },
-  { day: "Thu", amount: 1800 },
-  { day: "Fri", amount: 2100 },
-  { day: "Sat", amount: 2850 },
-  { day: "Sun", amount: 2500 },
-];
-
-// Calculate today's totals
-const totalSalesToday = todayTicketSales.reduce((sum, sale) => sum + parseFloat(sale.price.replace('$', '')) * sale.quantity, 0);
-const totalVisitorsToday = todayTicketSales.reduce((sum, sale) => sum + sale.quantity, 0);
-const totalSalesWeekly = weeklyRevenueData.reduce((sum, day) => sum + day.amount, 0);
-
-export default function StaffAdminDashboard(): JSX.Element {
+export default function StaffAdministrasiDashboard(): JSX.Element {
   const [sidebarCollapsed, setSidebarCollapsed] = useState<boolean>(false);
+  const [staffProfile, setStaffProfile] = useState<StaffAdminProfile | null>(null);
+  const [dashboardStats, setDashboardStats] = useState<DashboardStats>({
+    todayTicketSales: [],
+    totalTicketSalesToday: 0,
+    totalVisitorsToday: 0,
+    weeklyRevenueData: [],
+    totalWeeklyRevenue: 0
+  });
+  const [loading, setLoading] = useState<boolean>(true);
+  const [error, setError] = useState<string | null>(null);
+
+  useEffect(() => {
+    const fetchDashboardData = async () => {
+      try {
+        setLoading(true);
+        setError(null);
+
+        // Check session and role
+        const session = await getCurrentSession();
+        if (!session) {
+          redirect('/sign-in');
+          return;
+        }
+
+        // Verify user role - check if user is staff admin
+        const profile = await getStaffAdminProfile(session.username);
+        if (!profile || profile.roleSpecificData?.peran !== 'Staf Administrasi') {
+          setError('Access denied. This dashboard is only for Staff Administration.');
+          return;
+        }
+
+        setStaffProfile(profile);
+
+        // Fetch dashboard statistics
+        const stats = await getStaffAdminStats();
+        setDashboardStats(stats);
+
+      } catch (err) {
+        console.error('Error fetching dashboard data:', err);
+        setError('Failed to load dashboard data. Please try again.');
+      } finally {
+        setLoading(false);
+      }
+    };
+
+    fetchDashboardData();
+  }, []);
+
+  const handleSignOut = async () => {
+    try {
+      await signOutAction();
+    } catch (error) {
+      console.error('Sign out error:', error);
+    }
+  };
+
+  if (loading) {
+    return (
+      <div className="flex h-screen bg-gray-50 items-center justify-center">
+        <div className="text-center">
+          <div className="animate-spin rounded-full h-32 w-32 border-b-2 border-blue-600 mx-auto"></div>
+          <p className="mt-4 text-gray-600">Loading dashboard...</p>
+        </div>
+      </div>
+    );
+  }
+
+  if (error) {
+    return (
+      <div className="flex h-screen bg-gray-50 items-center justify-center">
+        <div className="text-center">
+          <div className="text-red-500 text-xl mb-4">{error}</div>
+          <button 
+            onClick={() => window.location.href = '/protected'}
+            className="px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700"
+          >
+            Go Back
+          </button>
+        </div>
+      </div>
+    );
+  }
+
+  if (!staffProfile) {
+    return (
+      <div className="flex h-screen bg-gray-50 items-center justify-center">
+        <div className="text-center">
+          <div className="text-red-500 text-xl mb-4">Profile not found</div>
+          <button 
+            onClick={() => window.location.href = '/protected'}
+            className="px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700"
+          >
+            Go Back
+          </button>
+        </div>
+      </div>
+    );
+  }
+
+  const fullName = staffProfile.nama_tengah 
+    ? `${staffProfile.nama_depan} ${staffProfile.nama_tengah} ${staffProfile.nama_belakang}`
+    : `${staffProfile.nama_depan} ${staffProfile.nama_belakang}`;
 
   return (
     <div className="flex h-screen bg-gray-50 text-gray-800">
       {/* Sidebar */}
       <div className={`bg-white shadow-lg ${sidebarCollapsed ? 'w-20' : 'w-64'} transition-all duration-300 flex flex-col`}>
         <div className="p-4 flex items-center justify-between border-b">
-          {!sidebarCollapsed && <h1 className="text-2xl font-bold text-emerald-600">SIZOPI</h1>}
-          {sidebarCollapsed && <div className="mx-auto text-2xl font-bold text-emerald-600">S</div>}
+          {!sidebarCollapsed && <h1 className="text-2xl font-bold text-blue-600">SIZOPI</h1>}
+          {sidebarCollapsed && <div className="mx-auto text-2xl font-bold text-blue-600">S</div>}
           <button onClick={() => setSidebarCollapsed(!sidebarCollapsed)} className="p-1 rounded-full hover:bg-gray-100">
             <Menu size={20} />
           </button>
@@ -97,18 +191,21 @@ export default function StaffAdminDashboard(): JSX.Element {
         
         <div className="p-4 border-t">
           <div className="flex items-center space-x-3">
-            <div className="w-10 h-10 rounded-full bg-emerald-200 flex items-center justify-center text-emerald-600 font-bold">
-              {staffData.fullName.charAt(0)}
+            <div className="w-10 h-10 rounded-full bg-blue-200 flex items-center justify-center text-blue-600 font-bold">
+              {staffProfile.nama_depan.charAt(0)}
             </div>
             {!sidebarCollapsed && (
               <div>
-                <p className="font-medium">{staffData.fullName}</p>
-                <p className="text-sm text-gray-500">{staffData.role}</p>
+                <p className="font-medium">{fullName}</p>
+                <p className="text-sm text-gray-500">{staffProfile.roleSpecificData?.peran}</p>
               </div>
             )}
           </div>
           {!sidebarCollapsed && (
-            <button className="mt-4 w-full flex items-center justify-center p-2 text-red-500 hover:bg-red-50 rounded-lg transition">
+            <button 
+              onClick={handleSignOut}
+              className="mt-4 w-full flex items-center justify-center p-2 text-red-500 hover:bg-red-50 rounded-lg transition"
+            >
               <LogOut size={18} className="mr-2" />
               <span>Logout</span>
             </button>
@@ -124,19 +221,19 @@ export default function StaffAdminDashboard(): JSX.Element {
             <input 
               type="text" 
               placeholder="Search..." 
-              className="w-full pl-10 pr-4 py-2 rounded-lg border border-gray-200 focus:outline-none focus:border-emerald-500"
+              className="w-full pl-10 pr-4 py-2 rounded-lg border border-gray-200 focus:outline-none focus:border-blue-500"
             />
             <Search size={18} className="absolute left-3 top-2.5 text-gray-400" />
           </div>
           
           <div className="flex items-center space-x-4">
-            <button className="relative p-2 text-gray-500 hover:text-emerald-600">
+            <button className="relative p-2 text-gray-500 hover:text-blue-600">
               <Bell size={20} />
               <span className="absolute top-1 right-1 w-2 h-2 bg-red-500 rounded-full"></span>
             </button>
             <div className="flex items-center space-x-2">
-              <div className="w-10 h-10 rounded-full bg-emerald-200 flex items-center justify-center text-emerald-600 font-bold">
-                {staffData.fullName.charAt(0)}
+              <div className="w-10 h-10 rounded-full bg-blue-200 flex items-center justify-center text-blue-600 font-bold">
+                {staffProfile.nama_depan.charAt(0)}
               </div>
               <ChevronDown size={16} />
             </div>
@@ -150,44 +247,45 @@ export default function StaffAdminDashboard(): JSX.Element {
           {/* Profile Information */}
           <div className="bg-white rounded-xl shadow-sm p-6 mb-6">
             <div className="flex items-center mb-6">
-              <div className="w-16 h-16 rounded-full bg-emerald-200 flex items-center justify-center text-emerald-600 text-2xl font-bold mr-4">
-                {staffData.fullName.charAt(0)}
+              <div className="w-16 h-16 rounded-full bg-blue-200 flex items-center justify-center text-blue-600 text-2xl font-bold mr-4">
+                {staffProfile.nama_depan.charAt(0)}
               </div>
               <div>
-                <h3 className="text-xl font-bold">{staffData.fullName}</h3>
+                <h3 className="text-xl font-bold">{fullName}</h3>
                 <div className="flex items-center">
-                  <span className="text-emerald-600">{staffData.role}</span>
+                  <Shield className="text-blue-600 mr-2" size={16} />
+                  <span className="text-blue-600">{staffProfile.roleSpecificData?.peran}</span>
                   <span className="mx-2">•</span>
-                  <span className="text-gray-500">ID: {staffData.staffID}</span>
+                  <span className="text-gray-500">ID: {staffProfile.roleSpecificData?.id_staf}</span>
                 </div>
               </div>
-              <button className="ml-auto px-4 py-2 bg-emerald-100 text-emerald-600 rounded-lg hover:bg-emerald-200 transition">
+              <button className="ml-auto px-4 py-2 bg-blue-100 text-blue-600 rounded-lg hover:bg-blue-200 transition">
                 Edit Profile
               </button>
             </div>
             
             <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
               <div className="flex items-start">
-                <User className="text-emerald-600 mt-1 mr-3" size={18} />
+                <User className="text-blue-600 mt-1 mr-3" size={18} />
                 <div>
                   <p className="text-sm text-gray-500">Username</p>
-                  <p className="font-medium">{staffData.username}</p>
+                  <p className="font-medium">{staffProfile.username}</p>
                 </div>
               </div>
               
               <div className="flex items-start">
-                <Mail className="text-emerald-600 mt-1 mr-3" size={18} />
+                <Mail className="text-blue-600 mt-1 mr-3" size={18} />
                 <div>
                   <p className="text-sm text-gray-500">Email</p>
-                  <p className="font-medium">{staffData.email}</p>
+                  <p className="font-medium">{staffProfile.email}</p>
                 </div>
               </div>
               
               <div className="flex items-start">
-                <Phone className="text-emerald-600 mt-1 mr-3" size={18} />
+                <Phone className="text-blue-600 mt-1 mr-3" size={18} />
                 <div>
                   <p className="text-sm text-gray-500">Phone Number</p>
-                  <p className="font-medium">{staffData.phoneNumber}</p>
+                  <p className="font-medium">{staffProfile.no_telepon}</p>
                 </div>
               </div>
             </div>
@@ -197,50 +295,50 @@ export default function StaffAdminDashboard(): JSX.Element {
           <div className="grid grid-cols-1 md:grid-cols-3 gap-6 mb-6">
             <StatCard 
               title="Today's Ticket Sales" 
-              value={`$${totalSalesToday.toFixed(2)}`} 
-              change="+12.5% from yesterday" 
+              value={`${dashboardStats.totalTicketSalesToday}`} 
+              change="" 
               icon={<Ticket size={24} />}
+              iconColor="text-purple-500" 
+              bgColor="bg-purple-100" 
+            />
+            <StatCard 
+              title="Today's Visitors" 
+              value={dashboardStats.totalVisitorsToday.toString()} 
+              change="" 
+              icon={<Users size={24} />}
               iconColor="text-blue-500" 
               bgColor="bg-blue-100" 
             />
             <StatCard 
-              title="Today's Visitors" 
-              value={totalVisitorsToday.toString()} 
-              change="+8% from yesterday" 
-              icon={<Users size={24} />}
-              iconColor="text-emerald-500" 
-              bgColor="bg-emerald-100" 
-            />
-            <StatCard 
               title="Weekly Revenue" 
-              value={`$${totalSalesWeekly.toFixed(2)}`} 
-              change="+15.2% from last week" 
+              value={`Rp ${dashboardStats.totalWeeklyRevenue.toLocaleString('id-ID')}`} 
+              change="" 
               icon={<DollarSign size={24} />}
-              iconColor="text-amber-500" 
-              bgColor="bg-amber-100" 
+              iconColor="text-green-500" 
+              bgColor="bg-green-100" 
             />
           </div>
           
           {/* Weekly Revenue Chart */}
           <div className="bg-white rounded-xl shadow-sm p-6 mb-6">
             <div className="flex justify-between items-center mb-4">
-              <h3 className="text-lg font-semibold">Weekly Revenue Report</h3>
+              <h3 className="text-lg font-semibold">Weekly Revenue Report (Adoption Contributions)</h3>
               <div className="flex space-x-2">
-                <button className="px-3 py-1 text-sm bg-emerald-600 text-white rounded-lg">This Week</button>
+                <button className="px-3 py-1 text-sm bg-blue-600 text-white rounded-lg">This Week</button>
                 <button className="px-3 py-1 text-sm bg-gray-100 text-gray-600 rounded-lg">Last Week</button>
               </div>
             </div>
             <div className="h-64">
               <ResponsiveContainer width="100%" height="100%">
                 <BarChart
-                  data={weeklyRevenueData}
+                  data={dashboardStats.weeklyRevenueData}
                   margin={{ top: 5, right: 20, left: 0, bottom: 5 }}
                 >
                   <CartesianGrid strokeDasharray="3 3" vertical={false} />
                   <XAxis dataKey="day" axisLine={false} tickLine={false} />
-                  <YAxis axisLine={false} tickLine={false} tickFormatter={(value) => `$${value}`} />
-                  <Tooltip formatter={(value) => [`$${value}`, 'Revenue']} />
-                  <Bar dataKey="amount" fill="#10b981" radius={[4, 4, 0, 0]} />
+                  <YAxis axisLine={false} tickLine={false} tickFormatter={(value) => `Rp ${value.toLocaleString('id-ID')}`} />
+                  <Tooltip formatter={(value) => [`Rp ${Number(value).toLocaleString('id-ID')}`, 'Revenue']} />
+                  <Bar dataKey="amount" fill="#3b82f6" radius={[4, 4, 0, 0]} />
                 </BarChart>
               </ResponsiveContainer>
             </div>
@@ -250,38 +348,52 @@ export default function StaffAdminDashboard(): JSX.Element {
           <div className="bg-white rounded-xl shadow-sm p-6">
             <div className="flex justify-between items-center mb-4">
               <h3 className="text-lg font-semibold">Today's Ticket Sales</h3>
-              <button className="text-sm text-emerald-600">View All Sales</button>
+              <button className="text-sm text-blue-600">View All Sales</button>
             </div>
             
             <div className="overflow-x-auto">
-              <table className="min-w-full">
-                <thead>
-                  <tr className="bg-gray-50">
-                    <th className="py-3 px-4 text-left text-sm font-medium text-gray-500">Ticket Type</th>
-                    <th className="py-3 px-4 text-left text-sm font-medium text-gray-500">Time</th>
-                    <th className="py-3 px-4 text-left text-sm font-medium text-gray-500">Price</th>
-                    <th className="py-3 px-4 text-left text-sm font-medium text-gray-500">Quantity</th>
-                    <th className="py-3 px-4 text-left text-sm font-medium text-gray-500">Total</th>
-                  </tr>
-                </thead>
-                <tbody className="divide-y divide-gray-200">
-                  {todayTicketSales.map((sale) => (
-                    <tr key={sale.id} className="hover:bg-gray-50">
-                      <td className="py-3 px-4 text-sm font-medium">{sale.type}</td>
-                      <td className="py-3 px-4 text-sm">{sale.time}</td>
-                      <td className="py-3 px-4 text-sm">{sale.price}</td>
-                      <td className="py-3 px-4 text-sm">{sale.quantity}</td>
-                      <td className="py-3 px-4 text-sm font-medium">
-                        ${(parseFloat(sale.price.replace('$', '')) * sale.quantity).toFixed(2)}
-                      </td>
+              {dashboardStats.todayTicketSales.length > 0 ? (
+                <table className="min-w-full">
+                  <thead>
+                    <tr className="bg-gray-50">
+                      <th className="py-3 px-4 text-left text-sm font-medium text-gray-500">Facility Name</th>
+                      <th className="py-3 px-4 text-left text-sm font-medium text-gray-500">Visitor</th>
+                      <th className="py-3 px-4 text-left text-sm font-medium text-gray-500">Tickets</th>
+                      <th className="py-3 px-4 text-left text-sm font-medium text-gray-500">Visit Date</th>
+                      <th className="py-3 px-4 text-left text-sm font-medium text-gray-500">Status</th>
                     </tr>
-                  ))}
-                  <tr className="bg-gray-50">
-                    <td colSpan={4} className="py-3 px-4 text-sm font-bold text-right">Total</td>
-                    <td className="py-3 px-4 text-sm font-bold">${totalSalesToday.toFixed(2)}</td>
-                  </tr>
-                </tbody>
-              </table>
+                  </thead>
+                  <tbody className="divide-y divide-gray-200">
+                    {dashboardStats.todayTicketSales.map((sale) => (
+                      <tr key={sale.id} className="hover:bg-gray-50">
+                        <td className="py-3 px-4 text-sm font-medium">{sale.facilityName}</td>
+                        <td className="py-3 px-4 text-sm">{sale.visitorUsername}</td>
+                        <td className="py-3 px-4 text-sm font-medium">{sale.ticketCount}</td>
+                        <td className="py-3 px-4 text-sm">{new Date(sale.visitDate).toLocaleDateString('id-ID')}</td>
+                        <td className="py-3 px-4 text-sm">
+                          <span className={`px-2 py-1 rounded-full text-xs ${
+                            sale.status === 'Confirmed' 
+                              ? 'bg-green-100 text-green-800' 
+                              : 'bg-yellow-100 text-yellow-800'
+                          }`}>
+                            {sale.status}
+                          </span>
+                        </td>
+                      </tr>
+                    ))}
+                    <tr className="bg-gray-50">
+                      <td colSpan={2} className="py-3 px-4 text-sm font-bold text-right">Total Tickets</td>
+                      <td className="py-3 px-4 text-sm font-bold">{dashboardStats.totalTicketSalesToday}</td>
+                      <td colSpan={2} className="py-3 px-4"></td>
+                    </tr>
+                  </tbody>
+                </table>
+              ) : (
+                <div className="text-center py-8 text-gray-500">
+                  <Ticket size={48} className="mx-auto mb-4 text-gray-300" />
+                  <p>No ticket sales found for today</p>
+                </div>
+              )}
             </div>
           </div>
         </div>
@@ -293,7 +405,7 @@ export default function StaffAdminDashboard(): JSX.Element {
 // Helper Components
 function SidebarItem({ icon, label, active = false, collapsed = false }: SidebarItemProps): JSX.Element {
   return (
-    <div className={`flex items-center p-3 rounded-lg ${active ? 'bg-emerald-100 text-emerald-600' : 'hover:bg-gray-100'}`}>
+    <div className={`flex items-center p-3 rounded-lg cursor-pointer ${active ? 'bg-blue-100 text-blue-600' : 'hover:bg-gray-100'}`}>
       <div className={`${collapsed ? 'mx-auto' : 'mr-3'}`}>{icon}</div>
       {!collapsed && <span>{label}</span>}
     </div>
@@ -322,3 +434,4 @@ function StatCard({ title, value, change, icon, iconColor, bgColor }: StatCardPr
     </div>
   );
 }
+

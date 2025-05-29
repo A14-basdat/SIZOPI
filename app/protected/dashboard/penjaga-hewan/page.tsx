@@ -1,7 +1,9 @@
 "use client";
 
-import { useState } from 'react';
-import { Activity, Menu, Package, Map, Calendar, Users, AlertTriangle, Settings, Search, Bell, ChevronDown } from 'lucide-react';
+import { useState, useEffect } from 'react';
+import { Activity, Menu, Package, Map, Calendar, Users, AlertTriangle, Settings, Search, Bell, ChevronDown, LogOut } from 'lucide-react';
+import { getCurrentSession, getAnimalKeeperProfile, getRecentlyFedAnimals, signOutAction } from '@/app/actions';
+import { redirect } from 'next/navigation';
 
 // TypeScript interfaces
 interface SidebarItemProps {
@@ -18,27 +20,125 @@ interface AnimalFeedProps {
   lastFed: string;
 }
 
-// Sample data
-const recentlyFedAnimals: AnimalFeedProps[] = [
-  { animalId: "A001", animalName: "Leo", type: "Lion", lastFed: "Today, 9:30 AM" },
-  { animalId: "A052", animalName: "Bella", type: "Elephant", lastFed: "Today, 10:15 AM" },
-  { animalId: "A124", animalName: "Charlie", type: "Chimpanzee", lastFed: "Today, 11:00 AM" },
-  { animalId: "A089", animalName: "Daisy", type: "Giraffe", lastFed: "Today, 12:30 PM" },
-];
+interface AnimalKeeperProfile {
+  username: string;
+  email: string;
+  nama_depan: string;
+  nama_tengah?: string;
+  nama_belakang: string;
+  no_telepon: string;
+  role: string;
+  roleSpecificData: {
+    id_staf: string;
+    peran: string;
+    totalAnimalsFed: number;
+    totalFeedingRecords: number;
+  };
+}
 
 export default function AnimalKeeperDashboard() {
   const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
-  
-  // User profile data
-  const userProfile = {
-    fullName: "Alice Johnson",
-    username: "alice_keeper",
-    email: "alice.johnson@sizopi.com",
-    phoneNumber: "+1 (555) 123-4567",
-    role: "Animal Keeper",
-    staffId: "SK-2023-0042",
-    animalsFed: 127
+  const [userProfile, setUserProfile] = useState<AnimalKeeperProfile | null>(null);
+  const [recentlyFedAnimals, setRecentlyFedAnimals] = useState<AnimalFeedProps[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
+
+  useEffect(() => {
+    const fetchData = async () => {
+      try {
+        setLoading(true);
+        
+        // Check if user is logged in and has the correct role
+        const session = await getCurrentSession();
+        if (!session) {
+          redirect('/sign-in');
+          return;
+        }
+
+        // Verify user role - should be staff with role "Penjaga Hewan"
+        if (session.role !== 'staff') {
+          setError('Access denied. This page is only for Animal Keepers.');
+          return;
+        }
+
+        // Fetch animal keeper profile
+        const profile = await getAnimalKeeperProfile(session.username);
+        if (!profile) {
+          setError('Failed to load profile data.');
+          return;
+        }
+
+        // Additional check to ensure this staff member is specifically a "Penjaga Hewan"
+        if (profile.roleSpecificData.peran !== 'Penjaga Hewan') {
+          setError('Access denied. This page is only for Animal Keepers.');
+          return;
+        }
+
+        setUserProfile(profile);
+
+        // Fetch recently fed animals
+        const recentAnimals = await getRecentlyFedAnimals(session.username);
+        setRecentlyFedAnimals(recentAnimals);
+
+      } catch (err) {
+        console.error('Error fetching data:', err);
+        setError('An error occurred while loading the dashboard.');
+      } finally {
+        setLoading(false);
+      }
+    };
+
+    fetchData();
+  }, []);
+
+  const handleSignOut = async () => {
+    try {
+      await signOutAction();
+    } catch (error) {
+      console.error('Sign out error:', error);
+    }
   };
+
+  if (loading) {
+    return (
+      <div className="flex h-screen bg-gray-50 items-center justify-center">
+        <div className="text-center">
+          <div className="animate-spin rounded-full h-32 w-32 border-b-2 border-emerald-600 mx-auto"></div>
+          <p className="mt-4 text-gray-600">Loading dashboard...</p>
+        </div>
+      </div>
+    );
+  }
+
+  if (error) {
+    return (
+      <div className="flex h-screen bg-gray-50 items-center justify-center">
+        <div className="text-center">
+          <div className="text-red-600 text-xl mb-4">⚠️ {error}</div>
+          <button 
+            onClick={() => window.location.href = '/protected'}
+            className="bg-emerald-600 text-white px-4 py-2 rounded-lg hover:bg-emerald-700"
+          >
+            Go Back to Dashboard
+          </button>
+        </div>
+      </div>
+    );
+  }
+
+  if (!userProfile) {
+    return (
+      <div className="flex h-screen bg-gray-50 items-center justify-center">
+        <div className="text-center">
+          <p className="text-gray-600">No profile data available.</p>
+        </div>
+      </div>
+    );
+  }
+
+  const fullName = userProfile.nama_tengah 
+    ? `${userProfile.nama_depan} ${userProfile.nama_tengah} ${userProfile.nama_belakang}`
+    : `${userProfile.nama_depan} ${userProfile.nama_belakang}`;
 
   return (
     <div className="flex h-screen bg-gray-50 text-gray-800">
@@ -65,15 +165,24 @@ export default function AnimalKeeperDashboard() {
         <div className="p-4 border-t">
           <div className="flex items-center space-x-3">
             <div className="w-10 h-10 rounded-full bg-emerald-200 flex items-center justify-center text-emerald-600 font-bold">
-              A
+              {userProfile.nama_depan.charAt(0)}
             </div>
             {!sidebarCollapsed && (
               <div>
-                <p className="font-medium">{userProfile.fullName}</p>
-                <p className="text-sm text-gray-500">{userProfile.role}</p>
+                <p className="font-medium">{fullName}</p>
+                <p className="text-sm text-gray-500">{userProfile.roleSpecificData.peran}</p>
               </div>
             )}
           </div>
+          {!sidebarCollapsed && (
+            <button 
+              onClick={handleSignOut}
+              className="mt-4 w-full flex items-center justify-center p-2 text-red-500 hover:bg-red-50 rounded-lg transition"
+            >
+              <LogOut size={18} className="mr-2" />
+              <span>Logout</span>
+            </button>
+          )}
         </div>
       </div>
       
@@ -97,7 +206,7 @@ export default function AnimalKeeperDashboard() {
             </button>
             <div className="flex items-center space-x-2">
               <div className="w-10 h-10 rounded-full bg-emerald-200 flex items-center justify-center text-emerald-600 font-bold">
-                {userProfile.fullName.charAt(0)}
+                {userProfile.nama_depan.charAt(0)}
               </div>
               <ChevronDown size={16} />
             </div>
@@ -114,11 +223,11 @@ export default function AnimalKeeperDashboard() {
             <div className="col-span-2 bg-white rounded-xl shadow-sm p-6">
               <div className="flex items-start">
                 <div className="w-16 h-16 rounded-full bg-emerald-200 flex items-center justify-center text-emerald-600 text-2xl font-bold mr-4">
-                  {userProfile.fullName.charAt(0)}
+                  {userProfile.nama_depan.charAt(0)}
                 </div>
                 <div>
-                  <h3 className="text-xl font-bold">{userProfile.fullName}</h3>
-                  <p className="text-emerald-600 font-medium">{userProfile.role}</p>
+                  <h3 className="text-xl font-bold">{fullName}</h3>
+                  <p className="text-emerald-600 font-medium">{userProfile.roleSpecificData.peran}</p>
                 </div>
               </div>
               
@@ -132,15 +241,19 @@ export default function AnimalKeeperDashboard() {
                     <p className="text-sm text-gray-500">Email</p>
                     <p className="font-medium">{userProfile.email}</p>
                   </div>
+                  <div className="mb-4">
+                    <p className="text-sm text-gray-500">Nomor Telepon</p>
+                    <p className="font-medium">{userProfile.no_telepon}</p>
+                  </div>
                 </div>
                 <div>
                   <div className="mb-4">
-                    <p className="text-sm text-gray-500">Phone Number</p>
-                    <p className="font-medium">{userProfile.phoneNumber}</p>
+                    <p className="text-sm text-gray-500">ID Staf</p>
+                    <p className="font-medium">{userProfile.roleSpecificData.id_staf}</p>
                   </div>
                   <div className="mb-4">
-                    <p className="text-sm text-gray-500">Staff ID</p>
-                    <p className="font-medium">{userProfile.staffId}</p>
+                    <p className="text-sm text-gray-500">Peran</p>
+                    <p className="font-medium">{userProfile.roleSpecificData.peran}</p>
                   </div>
                 </div>
               </div>
@@ -148,26 +261,27 @@ export default function AnimalKeeperDashboard() {
             
             {/* Stats Card */}
             <div className="bg-white rounded-xl shadow-sm p-6">
-              <h3 className="text-lg font-semibold mb-4">Activity Summary</h3>
+              <h3 className="text-lg font-semibold mb-4">Statistik Aktivitas</h3>
               
               <div className="bg-emerald-50 rounded-lg p-4 mb-4">
-                <p className="text-sm text-gray-600">Animals Fed</p>
+                <p className="text-sm text-gray-600">Total Hewan yang Diberi Pakan</p>
                 <div className="flex items-end justify-between">
-                  <p className="text-3xl font-bold text-emerald-600">{userProfile.animalsFed}</p>
+                  <p className="text-3xl font-bold text-emerald-600">{userProfile.roleSpecificData.totalAnimalsFed}</p>
                   <div className="text-emerald-500 flex items-center">
                     <Activity size={18} className="mr-1" />
-                    <span className="text-sm">+12 today</span>
+                    <span className="text-sm">Hewan</span>
                   </div>
                 </div>
               </div>
               
-              <div className="mt-6">
-                <div className="flex justify-between items-center mb-2">
-                  <h4 className="font-medium">Daily Goal</h4>
-                  <span className="text-sm text-emerald-600">80%</span>
-                </div>
-                <div className="w-full h-2 bg-gray-200 rounded-full overflow-hidden">
-                  <div className="h-full bg-emerald-500 rounded-full" style={{width: '80%'}}></div>
+              <div className="bg-blue-50 rounded-lg p-4">
+                <p className="text-sm text-gray-600">Total Pemberian Pakan</p>
+                <div className="flex items-end justify-between">
+                  <p className="text-3xl font-bold text-blue-600">{userProfile.roleSpecificData.totalFeedingRecords}</p>
+                  <div className="text-blue-500 flex items-center">
+                    <Package size={18} className="mr-1" />
+                    <span className="text-sm">Kali</span>
+                  </div>
                 </div>
               </div>
             </div>
@@ -176,32 +290,39 @@ export default function AnimalKeeperDashboard() {
           {/* Recently Fed Animals */}
           <div className="bg-white rounded-xl shadow-sm p-6">
             <div className="flex justify-between items-center mb-4">
-              <h3 className="text-lg font-semibold">Recently Fed Animals</h3>
-              <button className="text-sm text-emerald-600">View All</button>
+              <h3 className="text-lg font-semibold">Hewan yang Baru Diberi Pakan</h3>
+              <button className="text-sm text-emerald-600 hover:text-emerald-700">Lihat Semua</button>
             </div>
             
-            <div className="overflow-x-auto">
-              <table className="min-w-full">
-                <thead>
-                  <tr className="border-b border-gray-200">
-                    <th className="px-4 py-3 text-left text-sm font-medium text-gray-500">ID</th>
-                    <th className="px-4 py-3 text-left text-sm font-medium text-gray-500">Animal</th>
-                    <th className="px-4 py-3 text-left text-sm font-medium text-gray-500">Type</th>
-                    <th className="px-4 py-3 text-left text-sm font-medium text-gray-500">Last Fed</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {recentlyFedAnimals.map((animal, index) => (
-                    <tr key={index} className="border-b border-gray-100 hover:bg-gray-50">
-                      <td className="px-4 py-3 text-sm">{animal.animalId}</td>
-                      <td className="px-4 py-3 font-medium">{animal.animalName}</td>
-                      <td className="px-4 py-3 text-sm">{animal.type}</td>
-                      <td className="px-4 py-3 text-sm">{animal.lastFed}</td>
+            {recentlyFedAnimals.length === 0 ? (
+              <div className="text-center py-8">
+                <Package size={48} className="mx-auto text-gray-300 mb-4" />
+                <p className="text-gray-500">Belum ada data pemberian pakan</p>
+              </div>
+            ) : (
+              <div className="overflow-x-auto">
+                <table className="min-w-full">
+                  <thead>
+                    <tr className="border-b border-gray-200">
+                      <th className="px-4 py-3 text-left text-sm font-medium text-gray-500">ID Hewan</th>
+                      <th className="px-4 py-3 text-left text-sm font-medium text-gray-500">Nama Hewan</th>
+                      <th className="px-4 py-3 text-left text-sm font-medium text-gray-500">Spesies</th>
+                      <th className="px-4 py-3 text-left text-sm font-medium text-gray-500">Terakhir Diberi Pakan</th>
                     </tr>
-                  ))}
-                </tbody>
-              </table>
-            </div>
+                  </thead>
+                  <tbody>
+                    {recentlyFedAnimals.map((animal, index) => (
+                      <tr key={index} className="border-b border-gray-100 hover:bg-gray-50">
+                        <td className="px-4 py-3 text-sm font-mono">{animal.animalId}</td>
+                        <td className="px-4 py-3 font-medium">{animal.animalName}</td>
+                        <td className="px-4 py-3 text-sm">{animal.type}</td>
+                        <td className="px-4 py-3 text-sm">{animal.lastFed}</td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            )}
           </div>
         </div>
       </div>
@@ -212,9 +333,10 @@ export default function AnimalKeeperDashboard() {
 // Helper Component
 function SidebarItem({ icon, label, active = false, collapsed = false }: SidebarItemProps) {
   return (
-    <div className={`flex items-center p-3 rounded-lg ${active ? 'bg-emerald-100 text-emerald-600' : 'hover:bg-gray-100'}`}>
+    <div className={`flex items-center p-3 rounded-lg cursor-pointer transition-colors ${active ? 'bg-emerald-100 text-emerald-600' : 'hover:bg-gray-100'}`}>
       <div className={`${collapsed ? 'mx-auto' : 'mr-3'}`}>{icon}</div>
       {!collapsed && <span>{label}</span>}
     </div>
   );
 }
+

@@ -1,9 +1,11 @@
 "use client";
 
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import { Calendar, User, Mail, Phone, Home, Clock, Ticket, ChevronDown, Search, Bell, Menu, LogOut } from 'lucide-react';
 import React, { ReactNode } from 'react';
 import { JSX } from 'react/jsx-runtime';
+import { getCurrentSession, getUserProfile, signOutAction, UserProfile, getVisitHistory, getPurchasedTickets } from '@/app/actions';
+import { useRouter } from 'next/navigation';
 
 // TypeScript interfaces
 interface SidebarItemProps {
@@ -15,49 +17,244 @@ interface SidebarItemProps {
 
 interface VisitHistory {
   id: number;
-  date: string;
-  entranceTime: string;
-  exitTime: string;
+  nama_fasilitas: string;
+  tanggal_kunjungan: string;
+  jumlah_tiket: number;
+  status: string;
+  jadwal?: string;
+  kapasitas_max?: number;
 }
 
 interface PurchasedTicket {
   id: number;
-  ticketType: string;
-  purchaseDate: string;
-  visitDate: string;
-  price: string;
+  nama_fasilitas: string;
+  tanggal_kunjungan: string;
+  jumlah_tiket: number;
   status: string;
+  jadwal?: string;
+  kapasitas_max?: number;
 }
 
-// Sample visitor data
-const visitorData = {
-  fullName: "Sarah Johnson",
-  username: "sarahj",
-  email: "sarah.johnson@example.com",
-  phoneNumber: "+1 (555) 123-4567",
-  role: "Visitor",
-  fullAddress: "123 Park Avenue, Greenville, CA 94582, United States",
-  dateOfBirth: "May 15, 1990"
-};
-
-// Sample visit history
-const visitHistoryData: VisitHistory[] = [
-  { id: 1, date: "April 25, 2025", entranceTime: "10:30 AM", exitTime: "4:15 PM" },
-  { id: 2, date: "March 12, 2025", entranceTime: "11:00 AM", exitTime: "3:45 PM" },
-  { id: 3, date: "February 5, 2025", entranceTime: "9:15 AM", exitTime: "2:30 PM" },
-  { id: 4, date: "January 18, 2025", entranceTime: "1:30 PM", exitTime: "5:20 PM" },
-];
-
-// Sample purchased tickets
-const purchasedTicketsData: PurchasedTicket[] = [
-  { id: 1, ticketType: "Adult Full Day Pass", purchaseDate: "April 20, 2025", visitDate: "April 25, 2025", price: "$24.99", status: "Used" },
-  { id: 2, ticketType: "Adult Full Day Pass + Safari Experience", purchaseDate: "March 5, 2025", visitDate: "March 12, 2025", price: "$39.99", status: "Used" },
-  { id: 3, ticketType: "Family Pass (2 Adults, 2 Children)", purchaseDate: "April 22, 2025", visitDate: "May 5, 2025", price: "$79.99", status: "Active" },
-  { id: 4, ticketType: "Night Safari Special", purchaseDate: "April 24, 2025", visitDate: "May 10, 2025", price: "$34.99", status: "Active" },
-];
+interface SessionData {
+  username: string;
+  role: string; // Changed from literal union to string to accommodate all possible role values
+  userData: UserProfile | null;
+}
 
 export default function VisitorDashboard(): JSX.Element {
   const [sidebarCollapsed, setSidebarCollapsed] = useState<boolean>(false);
+  const [sessionData, setSessionData] = useState<SessionData | null>(null);
+  const [userProfile, setUserProfile] = useState<UserProfile | null>(null);
+  const [visitHistory, setVisitHistory] = useState<VisitHistory[]>([]);
+  const [purchasedTickets, setPurchasedTickets] = useState<PurchasedTicket[]>([]);
+  const [loading, setLoading] = useState<boolean>(true);
+  const [dataLoading, setDataLoading] = useState<boolean>(true);
+  const [error, setError] = useState<string | null>(null);
+  const router = useRouter();
+
+  useEffect(() => {
+    const checkSessionAndLoadProfile = async () => {
+      try {
+        setLoading(true);
+        
+        // Get current session
+        const session = await getCurrentSession();
+        
+        if (!session) {
+          console.log('No session found, redirecting to sign-in');
+          router.push('/sign-in');
+          return;
+        }
+
+        // Check if user role is pengunjung
+        if (session.role !== 'pengunjung') {
+          console.log('User is not a pengunjung, access denied');
+          setError('Access denied. This page is only for visitors.');
+          // Redirect to appropriate dashboard based on role
+          if (session.role === 'dokter_hewan') {
+            router.push('/protected/dashboard/dokter');
+          } else if (session.role === 'staff') {
+            router.push('/protected/dashboard/staff');
+          } else {
+            router.push('/protected');
+          }
+          return;
+        }
+
+        setSessionData(session);
+
+        // Get fresh user profile data
+        const profile = await getUserProfile(session.username);
+        
+        if (!profile) {
+          setError('Failed to load user profile');
+          return;
+        }
+
+        // Verify the profile role matches session role
+        if (profile.role !== 'pengunjung') {
+          setError('Profile role mismatch. Access denied.');
+          return;
+        }
+
+        setUserProfile(profile);
+        console.log('✅ User profile loaded successfully:', profile);
+
+        // Load visit history and purchased tickets
+        await loadUserData(session.username);
+
+      } catch (error) {
+        console.error('Error loading user data:', error);
+        setError('Failed to load user data');
+      } finally {
+        setLoading(false);
+      }
+    };
+
+    checkSessionAndLoadProfile();
+  }, [router]);
+
+  const loadUserData = async (username: string) => {
+    try {
+      setDataLoading(true);
+      
+      // Load visit history and purchased tickets
+      const [historyData, ticketsData] = await Promise.all([
+        getVisitHistory(username),
+        getPurchasedTickets(username)
+      ]);
+
+      setVisitHistory(historyData);
+      setPurchasedTickets(ticketsData);
+      
+      console.log('✅ User data loaded:', { historyData, ticketsData });
+    } catch (error) {
+      console.error('Error loading user data:', error);
+    } finally {
+      setDataLoading(false);
+    }
+  };
+
+  const handleSignOut = async () => {
+    try {
+      await signOutAction();
+    } catch (error) {
+      console.error('Sign out error:', error);
+    }
+  };
+
+  const formatFullName = (profile: UserProfile): string => {
+    return profile.nama_tengah 
+      ? `${profile.nama_depan} ${profile.nama_tengah} ${profile.nama_belakang}`
+      : `${profile.nama_depan} ${profile.nama_belakang}`;
+  };
+
+  const formatDateOfBirth = (dateString: string): string => {
+    try {
+      const date = new Date(dateString);
+      return date.toLocaleDateString('id-ID', { 
+        year: 'numeric', 
+        month: 'long', 
+        day: 'numeric' 
+      });
+    } catch {
+      return dateString;
+    }
+  };
+
+  const formatVisitDate = (dateString: string): string => {
+    try {
+      const date = new Date(dateString);
+      return date.toLocaleDateString('id-ID', { 
+        year: 'numeric', 
+        month: 'long', 
+        day: 'numeric' 
+      });
+    } catch {
+      return dateString;
+    }
+  };
+
+  const formatSchedule = (jadwalString: string): string => {
+    try {
+      const date = new Date(jadwalString);
+      return date.toLocaleString('id-ID', { 
+        year: 'numeric', 
+        month: 'short', 
+        day: 'numeric',
+        hour: '2-digit',
+        minute: '2-digit'
+      });
+    } catch {
+      return jadwalString;
+    }
+  };
+
+  const getStatusBadgeColor = (status: string): string => {
+    switch (status.toLowerCase()) {
+      case 'confirmed':
+      case 'active':
+        return 'bg-green-100 text-green-800';
+      case 'pending':
+        return 'bg-yellow-100 text-yellow-800';
+      case 'cancelled':
+      case 'expired':
+        return 'bg-red-100 text-red-800';
+      case 'completed':
+      case 'used':
+        return 'bg-gray-100 text-gray-800';
+      default:
+        return 'bg-blue-100 text-blue-800';
+    }
+  };
+
+  if (loading) {
+    return (
+      <div className="flex h-screen bg-gray-50 items-center justify-center">
+        <div className="text-center">
+          <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-emerald-600 mx-auto mb-4"></div>
+          <p className="text-gray-600">Loading your dashboard...</p>
+        </div>
+      </div>
+    );
+  }
+
+  if (error) {
+    return (
+      <div className="flex h-screen bg-gray-50 items-center justify-center">
+        <div className="text-center">
+          <div className="bg-red-100 border border-red-400 text-red-700 px-4 py-3 rounded mb-4">
+            {error}
+          </div>
+          <button 
+            onClick={() => router.push('/protected')}
+            className="px-4 py-2 bg-emerald-600 text-white rounded hover:bg-emerald-700"
+          >
+            Go to Main Dashboard
+          </button>
+        </div>
+      </div>
+    );
+  }
+
+  if (!userProfile || !sessionData) {
+    return (
+      <div className="flex h-screen bg-gray-50 items-center justify-center">
+        <div className="text-center">
+          <p className="text-gray-600">No user data available</p>
+          <button 
+            onClick={() => router.push('/sign-in')}
+            className="mt-4 px-4 py-2 bg-emerald-600 text-white rounded hover:bg-emerald-700"
+          >
+            Sign In
+          </button>
+        </div>
+      </div>
+    );
+  }
+
+  const fullName = formatFullName(userProfile);
+  const userInitial = fullName.charAt(0).toUpperCase();
 
   return (
     <div className="flex h-screen bg-gray-50 text-gray-800">
@@ -81,17 +278,20 @@ export default function VisitorDashboard(): JSX.Element {
         <div className="p-4 border-t">
           <div className="flex items-center space-x-3">
             <div className="w-10 h-10 rounded-full bg-emerald-200 flex items-center justify-center text-emerald-600 font-bold">
-              {visitorData.fullName.charAt(0)}
+              {userInitial}
             </div>
             {!sidebarCollapsed && (
               <div>
-                <p className="font-medium">{visitorData.fullName}</p>
-                <p className="text-sm text-gray-500">{visitorData.role}</p>
+                <p className="font-medium">{fullName}</p>
+                <p className="text-sm text-gray-500 capitalize">{userProfile.role}</p>
               </div>
             )}
           </div>
           {!sidebarCollapsed && (
-            <button className="mt-4 w-full flex items-center justify-center p-2 text-red-500 hover:bg-red-50 rounded-lg transition">
+            <button 
+              onClick={handleSignOut}
+              className="mt-4 w-full flex items-center justify-center p-2 text-red-500 hover:bg-red-50 rounded-lg transition"
+            >
               <LogOut size={18} className="mr-2" />
               <span>Logout</span>
             </button>
@@ -119,7 +319,7 @@ export default function VisitorDashboard(): JSX.Element {
             </button>
             <div className="flex items-center space-x-2">
               <div className="w-10 h-10 rounded-full bg-emerald-200 flex items-center justify-center text-emerald-600 font-bold">
-                {visitorData.fullName.charAt(0)}
+                {userInitial}
               </div>
               <ChevronDown size={16} />
             </div>
@@ -134,11 +334,11 @@ export default function VisitorDashboard(): JSX.Element {
           <div className="bg-white rounded-xl shadow-sm p-6 mb-6">
             <div className="flex items-center mb-6">
               <div className="w-16 h-16 rounded-full bg-emerald-200 flex items-center justify-center text-emerald-600 text-2xl font-bold mr-4">
-                {visitorData.fullName.charAt(0)}
+                {userInitial}
               </div>
               <div>
-                <h3 className="text-xl font-bold">{visitorData.fullName}</h3>
-                <p className="text-emerald-600">{visitorData.role}</p>
+                <h3 className="text-xl font-bold">{fullName}</h3>
+                <p className="text-emerald-600 capitalize">{userProfile.role}</p>
               </div>
               <button className="ml-auto px-4 py-2 bg-emerald-100 text-emerald-600 rounded-lg hover:bg-emerald-200 transition">
                 Edit Profile
@@ -151,7 +351,7 @@ export default function VisitorDashboard(): JSX.Element {
                   <User className="text-emerald-600 mt-1 mr-3" size={18} />
                   <div>
                     <p className="text-sm text-gray-500">Username</p>
-                    <p className="font-medium">{visitorData.username}</p>
+                    <p className="font-medium">{userProfile.username}</p>
                   </div>
                 </div>
                 
@@ -159,15 +359,15 @@ export default function VisitorDashboard(): JSX.Element {
                   <Mail className="text-emerald-600 mt-1 mr-3" size={18} />
                   <div>
                     <p className="text-sm text-gray-500">Email</p>
-                    <p className="font-medium">{visitorData.email}</p>
+                    <p className="font-medium">{userProfile.email}</p>
                   </div>
                 </div>
                 
                 <div className="flex items-start">
                   <Phone className="text-emerald-600 mt-1 mr-3" size={18} />
                   <div>
-                    <p className="text-sm text-gray-500">Phone Number</p>
-                    <p className="font-medium">{visitorData.phoneNumber}</p>
+                    <p className="text-sm text-gray-500">Nomor Telepon</p>
+                    <p className="font-medium">{userProfile.no_telepon}</p>
                   </div>
                 </div>
               </div>
@@ -176,16 +376,23 @@ export default function VisitorDashboard(): JSX.Element {
                 <div className="flex items-start">
                   <Home className="text-emerald-600 mt-1 mr-3" size={18} />
                   <div>
-                    <p className="text-sm text-gray-500">Full Address</p>
-                    <p className="font-medium">{visitorData.fullAddress}</p>
+                    <p className="text-sm text-gray-500">Alamat Lengkap</p>
+                    <p className="font-medium">
+                      {userProfile.roleSpecificData?.alamat || 'Alamat tidak tersedia'}
+                    </p>
                   </div>
                 </div>
                 
                 <div className="flex items-start">
                   <Calendar className="text-emerald-600 mt-1 mr-3" size={18} />
                   <div>
-                    <p className="text-sm text-gray-500">Date of Birth</p>
-                    <p className="font-medium">{visitorData.dateOfBirth}</p>
+                    <p className="text-sm text-gray-500">Tanggal Lahir</p>
+                    <p className="font-medium">
+                      {userProfile.roleSpecificData?.tgl_lahir 
+                        ? formatDateOfBirth(userProfile.roleSpecificData.tgl_lahir)
+                        : 'Tanggal lahir tidak tersedia'
+                      }
+                    </p>
                   </div>
                 </div>
               </div>
@@ -195,71 +402,112 @@ export default function VisitorDashboard(): JSX.Element {
           {/* Visit History */}
           <div className="bg-white rounded-xl shadow-sm p-6 mb-6">
             <div className="flex justify-between items-center mb-4">
-              <h3 className="text-lg font-semibold">Visit History</h3>
-              <button className="text-sm text-emerald-600">View All</button>
+              <h3 className="text-lg font-semibold">Riwayat Kunjungan</h3>
+              <button className="text-sm text-emerald-600 hover:text-emerald-700">View All</button>
             </div>
             
-            <div className="overflow-x-auto">
-              <table className="min-w-full">
-                <thead>
-                  <tr className="bg-gray-50">
-                    <th className="py-3 px-4 text-left text-sm font-medium text-gray-500">Date</th>
-                    <th className="py-3 px-4 text-left text-sm font-medium text-gray-500">Entrance Time</th>
-                    <th className="py-3 px-4 text-left text-sm font-medium text-gray-500">Exit Time</th>
-                  </tr>
-                </thead>
-                <tbody className="divide-y divide-gray-200">
-                  {visitHistoryData.map((visit) => (
-                    <tr key={visit.id} className="hover:bg-gray-50">
-                      <td className="py-3 px-4 text-sm">{visit.date}</td>
-                      <td className="py-3 px-4 text-sm">{visit.entranceTime}</td>
-                      <td className="py-3 px-4 text-sm">{visit.exitTime}</td>
+            {dataLoading ? (
+              <div className="flex justify-center py-8">
+                <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-emerald-600"></div>
+              </div>
+            ) : visitHistory.length > 0 ? (
+              <div className="overflow-x-auto">
+                <table className="min-w-full">
+                  <thead>
+                    <tr className="bg-gray-50">
+                      <th className="py-3 px-4 text-left text-sm font-medium text-gray-500">Nama Fasilitas</th>
+                      <th className="py-3 px-4 text-left text-sm font-medium text-gray-500">Tanggal Kunjungan</th>
+                      <th className="py-3 px-4 text-left text-sm font-medium text-gray-500">Jumlah Tiket</th>
+                      <th className="py-3 px-4 text-left text-sm font-medium text-gray-500">Jadwal</th>
+                      <th className="py-3 px-4 text-left text-sm font-medium text-gray-500">Status</th>
                     </tr>
-                  ))}
-                </tbody>
-              </table>
-            </div>
+                  </thead>
+                  <tbody className="divide-y divide-gray-200">
+                    {visitHistory.map((visit) => (
+                      <tr key={visit.id} className="hover:bg-gray-50">
+                        <td className="py-3 px-4 text-sm font-medium">{visit.nama_fasilitas}</td>
+                        <td className="py-3 px-4 text-sm">{formatVisitDate(visit.tanggal_kunjungan)}</td>
+                        <td className="py-3 px-4 text-sm">{visit.jumlah_tiket} tiket</td>
+                        <td className="py-3 px-4 text-sm">
+                          {visit.jadwal ? formatSchedule(visit.jadwal) : 'Jadwal tidak tersedia'}
+                        </td>
+                        <td className="py-3 px-4 text-sm">
+                          <span className={`px-2 py-1 rounded-full text-xs ${getStatusBadgeColor(visit.status)}`}>
+                            {visit.status}
+                          </span>
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            ) : (
+              <div className="text-center py-8">
+                <Clock className="mx-auto h-12 w-12 text-gray-400 mb-4" />
+                <p className="text-gray-500 text-lg">Tidak ada riwayat kunjungan</p>
+                <p className="text-gray-400 text-sm">Anda belum memiliki riwayat kunjungan ke fasilitas manapun.</p>
+              </div>
+            )}
           </div>
           
           {/* Purchased Tickets */}
           <div className="bg-white rounded-xl shadow-sm p-6">
             <div className="flex justify-between items-center mb-4">
-              <h3 className="text-lg font-semibold">Purchased Tickets</h3>
+              <h3 className="text-lg font-semibold">Tiket yang Telah Dibeli</h3>
               <button className="px-4 py-2 bg-emerald-600 text-white rounded-lg hover:bg-emerald-700 transition">
-                Buy New Ticket
+                Beli Tiket Baru
               </button>
             </div>
             
-            <div className="overflow-x-auto">
-              <table className="min-w-full">
-                <thead>
-                  <tr className="bg-gray-50">
-                    <th className="py-3 px-4 text-left text-sm font-medium text-gray-500">Ticket Type</th>
-                    <th className="py-3 px-4 text-left text-sm font-medium text-gray-500">Purchase Date</th>
-                    <th className="py-3 px-4 text-left text-sm font-medium text-gray-500">Visit Date</th>
-                    <th className="py-3 px-4 text-left text-sm font-medium text-gray-500">Price</th>
-                    <th className="py-3 px-4 text-left text-sm font-medium text-gray-500">Status</th>
-                  </tr>
-                </thead>
-                <tbody className="divide-y divide-gray-200">
-                  {purchasedTicketsData.map((ticket) => (
-                    <tr key={ticket.id} className="hover:bg-gray-50">
-                      <td className="py-3 px-4 text-sm font-medium">{ticket.ticketType}</td>
-                      <td className="py-3 px-4 text-sm">{ticket.purchaseDate}</td>
-                      <td className="py-3 px-4 text-sm">{ticket.visitDate}</td>
-                      <td className="py-3 px-4 text-sm">{ticket.price}</td>
-                      <td className="py-3 px-4 text-sm">
-                        <span className={`px-2 py-1 rounded-full text-xs ${
-                          ticket.status === 'Active' ? 'bg-green-100 text-green-800' : 'bg-gray-100 text-gray-800'
-                        }`}>
-                          {ticket.status}
-                        </span>
-                      </td>
+            {dataLoading ? (
+              <div className="flex justify-center py-8">
+                <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-emerald-600"></div>
+              </div>
+            ) : purchasedTickets.length > 0 ? (
+              <div className="overflow-x-auto">
+                <table className="min-w-full">
+                  <thead>
+                    <tr className="bg-gray-50">
+                      <th className="py-3 px-4 text-left text-sm font-medium text-gray-500">Nama Fasilitas</th>
+                      <th className="py-3 px-4 text-left text-sm font-medium text-gray-500">Tanggal Kunjungan</th>
+                      <th className="py-3 px-4 text-left text-sm font-medium text-gray-500">Jumlah Tiket</th>
+                      <th className="py-3 px-4 text-left text-sm font-medium text-gray-500">Kapasitas Max</th>
+                      <th className="py-3 px-4 text-left text-sm font-medium text-gray-500">Jadwal</th>
+                      <th className="py-3 px-4 text-left text-sm font-medium text-gray-500">Status</th>
                     </tr>
-                  ))}
-                </tbody>
-              </table>
-            </div>
+                  </thead>
+                  <tbody className="divide-y divide-gray-200">
+                    {purchasedTickets.map((ticket) => (
+                      <tr key={ticket.id} className="hover:bg-gray-50">
+                        <td className="py-3 px-4 text-sm font-medium">{ticket.nama_fasilitas}</td>
+                        <td className="py-3 px-4 text-sm">{formatVisitDate(ticket.tanggal_kunjungan)}</td>
+                        <td className="py-3 px-4 text-sm">{ticket.jumlah_tiket} tiket</td>
+                        <td className="py-3 px-4 text-sm">
+                          {ticket.kapasitas_max ? `${ticket.kapasitas_max} orang` : 'Tidak tersedia'}
+                        </td>
+                        <td className="py-3 px-4 text-sm">
+                          {ticket.jadwal ? formatSchedule(ticket.jadwal) : 'Jadwal tidak tersedia'}
+                        </td>
+                        <td className="py-3 px-4 text-sm">
+                          <span className={`px-2 py-1 rounded-full text-xs ${getStatusBadgeColor(ticket.status)}`}>
+                            {ticket.status}
+                          </span>
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            ) : (
+              <div className="text-center py-8">
+                <Ticket className="mx-auto h-12 w-12 text-gray-400 mb-4" />
+                <p className="text-gray-500 text-lg">Tidak ada tiket yang dibeli</p>
+                <p className="text-gray-400 text-sm">Anda belum membeli tiket untuk fasilitas manapun.</p>
+                <button className="mt-4 px-6 py-2 bg-emerald-600 text-white rounded-lg hover:bg-emerald-700 transition">
+                  Beli Tiket Sekarang
+                </button>
+              </div>
+            )}
           </div>
         </div>
       </div>
@@ -270,7 +518,7 @@ export default function VisitorDashboard(): JSX.Element {
 // Helper Component
 function SidebarItem({ icon, label, active = false, collapsed = false }: SidebarItemProps): JSX.Element {
   return (
-    <div className={`flex items-center p-3 rounded-lg ${active ? 'bg-emerald-100 text-emerald-600' : 'hover:bg-gray-100'}`}>
+    <div className={`flex items-center p-3 rounded-lg cursor-pointer ${active ? 'bg-emerald-100 text-emerald-600' : 'hover:bg-gray-100'}`}>
       <div className={`${collapsed ? 'mx-auto' : 'mr-3'}`}>{icon}</div>
       {!collapsed && <span>{label}</span>}
     </div>
