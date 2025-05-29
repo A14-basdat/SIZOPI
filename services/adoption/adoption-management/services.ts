@@ -1,5 +1,5 @@
 import { createClient } from '@/utils/supabase/client';
-import type { Database } from '@/database.types';
+import { PostgrestClient } from '@supabase/postgrest-js';
 
 export type Adoption = {
   id_adopter: string;
@@ -16,9 +16,11 @@ export type Adoption = {
 
 export class AdoptionManagementService {
   private supabase;
+  private db: PostgrestClient<any, "sizopi", any>;
   
   constructor() {
     this.supabase = createClient();
+    this.db = this.supabase.schema('sizopi');
   }
   
   /**
@@ -26,7 +28,7 @@ export class AdoptionManagementService {
    */
   async hasAdminPermission(userId: string): Promise<boolean> {
     try {
-      const { data: userData } = await this.supabase
+      const { data: userData } = await this.db
         .from('pengguna')
         .select('permission_level')
         .eq('id', userId)
@@ -46,7 +48,7 @@ export class AdoptionManagementService {
   async getAllAdoptions() {
     try {
       // First, get basic adoption data
-      const { data: adoptionData, error } = await this.supabase
+      const { data: adoptionData, error } = await this.db
         .from('adopsi')
         .select(`
           id_adopter,
@@ -63,14 +65,14 @@ export class AdoptionManagementService {
       const adoptionsWithDetails = await Promise.all(
         adoptionData.map(async (adoption) => {
           // Get animal details
-          const { data: animalData } = await this.supabase
+          const { data: animalData } = await this.db
             .from('hewan')
             .select('id, nama, spesies, url_foto')
             .eq('id', adoption.id_hewan)
             .single();
           
           // Get adopter details
-          const { data: adopterData } = await this.supabase
+          const { data: adopterData } = await this.db
             .from('adopter')
             .select('id_adopter, username_adopter')
             .eq('id_adopter', adoption.id_adopter)
@@ -79,7 +81,7 @@ export class AdoptionManagementService {
           // Get pengunjung details if username_adopter exists
           let pengunjungData = null;
           if (adopterData?.username_adopter) {
-            const { data: pengunjungResponse } = await this.supabase
+            const { data: pengunjungResponse } = await this.db
               .from('pengunjung')
               .select('username_p')
               .eq('username_p', adopterData.username_adopter)
@@ -91,7 +93,7 @@ export class AdoptionManagementService {
           // Get user details from pengguna table
           let userData = null;
           if (pengunjungData?.username_p) {
-            const { data: user } = await this.supabase
+            const { data: user } = await this.db
               .from('pengguna')
               .select('nama_depan, nama_belakang')
               .eq('username', pengunjungData.username_p)
@@ -123,7 +125,7 @@ export class AdoptionManagementService {
   async getUserAdoptions(userId: string) {
     try {
       // First, get the adopter_id for this user
-      const { data: adopterData } = await this.supabase
+      const { data: adopterData } = await this.db
         .from('pengunjung')
         .select('username_p')
         .eq('username_p', userId)
@@ -134,7 +136,7 @@ export class AdoptionManagementService {
       }
       
       // Then get adopter record
-      const { data: adopter } = await this.supabase
+      const { data: adopter } = await this.db
         .from('adopter')
         .select('id_adopter')
         .eq('username_adopter', adopterData.username_p)
@@ -145,7 +147,7 @@ export class AdoptionManagementService {
       }
       
       // Get adoptions for this adopter
-      const { data, error } = await this.supabase
+      const { data, error } = await this.db
         .from('adopsi')
         .select(`
           id_adopter,
@@ -162,7 +164,7 @@ export class AdoptionManagementService {
       // Get animal details separately
       const adoptionsWithDetails = await Promise.all(
         data.map(async (adoption) => {
-          const { data: animalData } = await this.supabase
+          const { data: animalData } = await this.db
             .from('hewan')
             .select('id, nama, spesies, url_foto')
             .eq('id', adoption.id_hewan)
@@ -193,15 +195,15 @@ export class AdoptionManagementService {
     kontribusi_finansial: number;
     tgl_mulai_adopsi: string;
     tgl_berhenti_adopsi: string;
+    status_pembayaran?: string;
   }) {
     try {
-      // Set initial status to "pending"
+      // Set initial status to "Tertunda" if not provided
       const data = {
         ...adoptionData,
-        status_pembayaran: 'pending'
       };
-      
-      const { error } = await this.supabase
+      if (!adoptionData.status_pembayaran) data.status_pembayaran = 'Tertunda';
+      const { error } = await this.db
         .from('adopsi')
         .insert(data);
         
@@ -223,7 +225,7 @@ export class AdoptionManagementService {
     status: 'Lunas' | 'Tertunda' | 'Dibatalkan' | 'Gagal'
   ) {
     try {
-      const { error } = await this.supabase
+      const { error } = await this.db
         .from('adopsi')
         .update({ status_pembayaran: status })
         .match({ 
@@ -245,7 +247,7 @@ export class AdoptionManagementService {
    */
   async deleteAdoption(adopterId: string, hewanId: string) {
     try {
-      const { error } = await this.supabase
+      const { error } = await this.db
         .from('adopsi')
         .delete()
         .match({ 
@@ -268,14 +270,14 @@ export class AdoptionManagementService {
   async getAvailableAnimals() {
     try {
       // Get all animals
-      const { data: allAnimals, error } = await this.supabase
+      const { data: allAnimals, error } = await this.db
         .from('hewan')
         .select('id, nama, spesies, url_foto, status_kesehatan');
         
       if (error) throw error;
       
       // Get all adopted animals
-      const { data: adoptedAnimals } = await this.supabase
+      const { data: adoptedAnimals } = await this.db
         .from('adopsi')
         .select('id_hewan');
       

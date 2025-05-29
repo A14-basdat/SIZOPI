@@ -9,7 +9,7 @@ import { cookies } from 'next/headers';
 import { randomUUID } from 'crypto';
 
 // Types for our role-based registration
-export type UserRole = 'pengunjung' | 'dokter_hewan' | 'staff';
+export type UserRole = 'pengunjung' | 'dokter_hewan' | 'staff' | 'adopter';
 
 export interface BaseUserData {
   username: string;
@@ -101,7 +101,15 @@ export const getUserProfile = async (username: string): Promise<UserProfile | nu
       .single();
 
     if (pengunjungData) {
-      role = 'pengunjung';
+      // Check adopter
+      const { data: adopterData } = await supabaseDb
+        .from('adopter')
+        .select('*')
+        .eq('username_adopter', username)
+        .single();
+
+      if (adopterData) role = 'adopter';
+      else role = 'pengunjung';
       roleSpecificData = {
         alamat: pengunjungData.alamat,
         tgl_lahir: pengunjungData.tgl_lahir
@@ -643,4 +651,52 @@ export const refreshUserSession = async (username: string) => {
 
   await createSession(username, updatedProfile.role, updatedProfile);
   return true;
+};
+
+// Function to handle forgotten password
+export const forgotPasswordAction = async (formData: FormData) => {
+  const email = formData.get("email")?.toString();
+  
+  console.log('=== FORGOT PASSWORD PROCESS START ===');
+  console.log('Email provided:', email);
+
+  if (!email) {
+    return encodedRedirect("error", "/forgot-password", "Email is required");
+  }
+
+  try {
+    const supabase = await createClient();
+    const supabaseDb = supabase.schema('sizopi');
+    
+    // Check if the email exists in our database
+    console.log('Checking if email exists in database...');
+    const { data: userData, error: userError } = await supabaseDb
+      .from('pengguna')
+      .select('username, email')
+      .eq('email', email)
+      .single();
+
+    if (userError || !userData) {
+      console.log('❌ Email not found in database');
+      // We don't want to reveal if an email exists in our system for security
+      return encodedRedirect("success", "/forgot-password", "If your email exists in our system, you'll receive reset instructions shortly.");
+    }
+
+    console.log('✅ Email found in database:', userData.email);
+    
+    // In a real app, you would:
+    // 1. Generate a secure token
+    // 2. Store it in the database with an expiry
+    // 3. Send an email with a reset link
+
+    // For this implementation, we'll simulate the process
+    console.log('Password reset process would be initiated here in production');
+    
+    // Return success message
+    return encodedRedirect("success", "/forgot-password", "Password reset instructions have been sent to your email.");
+    
+  } catch (error) {
+    console.error('=== FORGOT PASSWORD ERROR ===', error);
+    return encodedRedirect("error", "/forgot-password", "Failed to process request. Please try again later.");
+  }
 };

@@ -1,19 +1,29 @@
 import { createClient } from "@/utils/supabase/server";
+import { getCurrentSession, getUserRoleInfo } from "@/app/actions";
 import { redirect } from "next/navigation";
 import { InfoIcon } from "lucide-react";
 import RedirectButton from "@/components/redirect-button";
 import { HomeIcon } from "lucide-react";
+import { get } from "http";
 
 
 export default async function AdoptionPage() {
   const supabase = await createClient();
 
-  const {
-    data: { user },
-  } = await supabase.auth.getUser();
+  // Check if the user is authenticated
+  const session = await getCurrentSession();
+  if (!session) {
+    // If not authenticated, redirect to the sign-in page
+    redirect("/sign-in");
+  }
 
-  if (!user) {
-    return redirect("/sign-in");
+  // Check if the user is a staff member
+  const userRoleInfo = await getUserRoleInfo(session.username);
+  const role = userRoleInfo.role;
+  const roleSpecificData = userRoleInfo.roleSpecificData;
+  if (role !== "staff" && roleSpecificData?.peran !== "admin") {
+    // If not a staff member, redirect to the homepage
+    redirect("/protected");
   }
 
   return (

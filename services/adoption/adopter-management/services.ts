@@ -1,5 +1,5 @@
 import { createClient } from '@/utils/supabase/client';
-import type { Database } from '@/database.types';
+import { PostgrestClient } from '@supabase/postgrest-js';
 
 export type Adopter = {
   id_adopter: string;
@@ -25,9 +25,11 @@ export type Adopter = {
 
 export class AdopterManagementService {
   private supabase;
+  private db: PostgrestClient<any, "sizopi", any>;
 
   constructor() {
-    this.supabase = createClient<Database>();
+    this.supabase = createClient();
+    this.db = this.supabase.schema('sizopi');
   }
 
   /**
@@ -36,7 +38,7 @@ export class AdopterManagementService {
   async getAllAdopters(): Promise<Adopter[]> {
     try {
       // Get basic adopter data
-      const { data: adopterData, error } = await this.supabase
+      const { data: adopterData, error } = await this.db
         .from('adopter')
         .select(`
           id_adopter,
@@ -56,7 +58,7 @@ export class AdopterManagementService {
           };
 
           // Check if adopter is individual
-          const { data: individuData } = await this.supabase
+          const { data: individuData } = await this.db
             .from('individu')
             .select('nik, nama')
             .eq('id_adopter', adopter.id_adopter)
@@ -71,7 +73,7 @@ export class AdopterManagementService {
             };
           } else {
             // Check if adopter is organization
-            const { data: orgData } = await this.supabase
+            const { data: orgData } = await this.db
               .from('organisasi')
               .select('npp, nama_organisasi')
               .eq('id_adopter', adopter.id_adopter)
@@ -89,7 +91,7 @@ export class AdopterManagementService {
           
           // Get related pengunjung data for contact information
           if (adopter.username_adopter) {
-            const { data: pengunjungData } = await this.supabase
+            const { data: pengunjungData } = await this.db
               .from('pengunjung')
               .select('username_p, email, no_telp')
               .eq('username_p', adopter.username_adopter)
@@ -103,7 +105,7 @@ export class AdopterManagementService {
               };
               
               // Get user profile information
-              const { data: userData } = await this.supabase
+              const { data: userData } = await this.db
                 .from('pengguna')
                 .select('nama_depan, nama_belakang, foto_profil')
                 .eq('username', pengunjungData.username_p)
@@ -120,7 +122,7 @@ export class AdopterManagementService {
           }
           
           // Get count of active adoptions
-          const { count } = await this.supabase
+          const { count } = await this.db
             .from('adopsi')
             .select('id_adopter', { count: 'exact', head: true })
             .eq('id_adopter', adopter.id_adopter);
@@ -143,7 +145,7 @@ export class AdopterManagementService {
    */
   async getAdopter(id: string): Promise<Adopter | null> {
     try {
-      const { data: adopter, error } = await this.supabase
+      const { data: adopter, error } = await this.db
         .from('adopter')
         .select('id_adopter, username_adopter, total_kontribusi')
         .eq('id_adopter', id)
@@ -159,7 +161,7 @@ export class AdopterManagementService {
       };
       
       // Check if individual
-      const { data: individuData } = await this.supabase
+      const { data: individuData } = await this.db
         .from('individu')
         .select('nik, nama')
         .eq('id_adopter', id)
@@ -174,7 +176,7 @@ export class AdopterManagementService {
         };
       } else {
         // Check if organization
-        const { data: orgData } = await this.supabase
+        const { data: orgData } = await this.db
           .from('organisasi')
           .select('npp, nama_organisasi')
           .eq('id_adopter', id)
@@ -192,7 +194,7 @@ export class AdopterManagementService {
       
       // Get related pengunjung data
       if (adopter.username_adopter) {
-        const { data: pengunjungData } = await this.supabase
+        const { data: pengunjungData } = await this.db
           .from('pengunjung')
           .select('username_p, email, no_telp')
           .eq('username_p', adopter.username_adopter)
@@ -206,7 +208,7 @@ export class AdopterManagementService {
           };
           
           // Get user profile information
-          const { data: userData } = await this.supabase
+          const { data: userData } = await this.db
             .from('pengguna')
             .select('nama_depan, nama_belakang, foto_profil')
             .eq('username', pengunjungData.username_p)
@@ -223,7 +225,7 @@ export class AdopterManagementService {
       }
       
       // Get count of active adoptions
-      const { count } = await this.supabase
+      const { count } = await this.db
         .from('adopsi')
         .select('id_adopter', { count: 'exact', head: true })
         .eq('id_adopter', id);
@@ -248,7 +250,7 @@ export class AdopterManagementService {
   ) {
     try {
       // Verify pengunjung exists
-      const { data: pengunjung, error: pengunjungError } = await this.supabase
+      const { data: pengunjung, error: pengunjungError } = await this.db
         .from('pengunjung')
         .select('username_p')
         .eq('username_p', username_adopter)
@@ -259,7 +261,7 @@ export class AdopterManagementService {
       }
       
       // Create adopter base record
-      const { data: adopter, error: adopterError } = await this.supabase
+      const { data: adopter, error: adopterError } = await this.db
         .from('adopter')
         .insert({
           username_adopter,
@@ -271,7 +273,7 @@ export class AdopterManagementService {
       if (adopterError) throw adopterError;
       
       // Create individu record
-      const { error: individuError } = await this.supabase
+      const { error: individuError } = await this.db
         .from('individu')
         .insert({
           nik,
@@ -281,7 +283,7 @@ export class AdopterManagementService {
         
       if (individuError) {
         // Rollback adopter creation if individu creation fails
-        await this.supabase
+        await this.db
           .from('adopter')
           .delete()
           .eq('id_adopter', adopter.id_adopter);
@@ -307,7 +309,7 @@ export class AdopterManagementService {
   ) {
     try {
       // Verify pengunjung exists
-      const { data: pengunjung, error: pengunjungError } = await this.supabase
+      const { data: pengunjung, error: pengunjungError } = await this.db
         .from('pengunjung')
         .select('username_p')
         .eq('username_p', username_adopter)
@@ -318,7 +320,7 @@ export class AdopterManagementService {
       }
       
       // Create adopter base record
-      const { data: adopter, error: adopterError } = await this.supabase
+      const { data: adopter, error: adopterError } = await this.db
         .from('adopter')
         .insert({
           username_adopter,
@@ -330,7 +332,7 @@ export class AdopterManagementService {
       if (adopterError) throw adopterError;
       
       // Create organisasi record
-      const { error: orgError } = await this.supabase
+      const { error: orgError } = await this.db
         .from('organisasi')
         .insert({
           npp,
@@ -340,7 +342,7 @@ export class AdopterManagementService {
         
       if (orgError) {
         // Rollback adopter creation if organisasi creation fails
-        await this.supabase
+        await this.db
           .from('adopter')
           .delete()
           .eq('id_adopter', adopter.id_adopter);
@@ -367,7 +369,7 @@ export class AdopterManagementService {
   ) {
     try {
       // Verify this is an individual adopter
-      const { data: individu, error: individuError } = await this.supabase
+      const { data: individu, error: individuError } = await this.db
         .from('individu')
         .select('nik')
         .eq('id_adopter', id_adopter)
@@ -381,7 +383,7 @@ export class AdopterManagementService {
       
       // Update adopter base record if needed
       if (data.total_kontribusi !== undefined) {
-        const { error: updateError } = await this.supabase
+        const { error: updateError } = await this.db
           .from('adopter')
           .update({ total_kontribusi: data.total_kontribusi })
           .eq('id_adopter', id_adopter);
@@ -392,7 +394,7 @@ export class AdopterManagementService {
       
       // Update individu record if needed
       if (data.nama !== undefined) {
-        const { error: updateError } = await this.supabase
+        const { error: updateError } = await this.db
           .from('individu')
           .update({ nama: data.nama })
           .eq('id_adopter', id_adopter);
@@ -420,7 +422,7 @@ export class AdopterManagementService {
   ) {
     try {
       // Verify this is an organization adopter
-      const { data: org, error: orgError } = await this.supabase
+      const { data: org, error: orgError } = await this.db
         .from('organisasi')
         .select('npp')
         .eq('id_adopter', id_adopter)
@@ -434,7 +436,7 @@ export class AdopterManagementService {
       
       // Update adopter base record if needed
       if (data.total_kontribusi !== undefined) {
-        const { error: updateError } = await this.supabase
+        const { error: updateError } = await this.db
           .from('adopter')
           .update({ total_kontribusi: data.total_kontribusi })
           .eq('id_adopter', id_adopter);
@@ -445,7 +447,7 @@ export class AdopterManagementService {
       
       // Update organisasi record if needed
       if (data.nama_organisasi !== undefined) {
-        const { error: updateError } = await this.supabase
+        const { error: updateError } = await this.db
           .from('organisasi')
           .update({ nama_organisasi: data.nama_organisasi })
           .eq('id_adopter', id_adopter);
@@ -467,7 +469,7 @@ export class AdopterManagementService {
   async deleteAdopter(id_adopter: string) {
     try {
       // Check if adopter has active adoptions
-      const { count } = await this.supabase
+      const { count } = await this.db
         .from('adopsi')
         .select('id_adopter', { count: 'exact', head: true })
         .eq('id_adopter', id_adopter);
@@ -477,7 +479,7 @@ export class AdopterManagementService {
       }
       
       // Check if individual or organization
-      const { data: individu } = await this.supabase
+      const { data: individu } = await this.db
         .from('individu')
         .select('nik')
         .eq('id_adopter', id_adopter)
@@ -485,7 +487,7 @@ export class AdopterManagementService {
         
       if (individu) {
         // Delete individu record first
-        const { error } = await this.supabase
+        const { error } = await this.db
           .from('individu')
           .delete()
           .eq('id_adopter', id_adopter);
@@ -493,7 +495,7 @@ export class AdopterManagementService {
         if (error) throw error;
       } else {
         // Try deleting organisasi record
-        const { error } = await this.supabase
+        const { error } = await this.db
           .from('organisasi')
           .delete()
           .eq('id_adopter', id_adopter);
@@ -502,7 +504,7 @@ export class AdopterManagementService {
       }
       
       // Delete adopter base record
-      const { error } = await this.supabase
+      const { error } = await this.db
         .from('adopter')
         .delete()
         .eq('id_adopter', id_adopter);
@@ -521,7 +523,7 @@ export class AdopterManagementService {
    */
   async getAdopterAdoptionsCount(id_adopter: string): Promise<number> {
     try {
-      const { count, error } = await this.supabase
+      const { count, error } = await this.db
         .from('adopsi')
         .select('id_adopter', { count: 'exact', head: true })
         .eq('id_adopter', id_adopter);
