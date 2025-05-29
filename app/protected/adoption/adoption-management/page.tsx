@@ -155,7 +155,7 @@ export default function AdoptionManagementPage() {
   }
 
   function handleEdit(id: string) {
-    router.push(`/protected/adoption/adoption-management/update?id=${id}`);
+    router.push(`/protected/adoption/adoption-management/update?id_adopter=${id}`);
   }
 
   function handleCreate() {
@@ -165,7 +165,7 @@ export default function AdoptionManagementPage() {
   function handleStatusChange(
     id_adopter: string,
     id_hewan: string,
-    newStatus: string
+    newStatus: 'Lunas' | 'Tertunda' | 'Dibatalkan' | 'Gagal'
   ) {
     adoptionService
       .updateAdoptionStatus(id_adopter, id_hewan, newStatus)
@@ -201,7 +201,7 @@ export default function AdoptionManagementPage() {
   if (error)
     return (
       <AdoptionServerAuthWrapper>
-        <div className="p-6">
+        <div className="mt-6 flex flex-col gap-4 p-6">
           <Alert variant="destructive">
             <AlertCircle className="h-4 w-4" />
             <AlertTitle>Error</AlertTitle>
@@ -248,7 +248,11 @@ export default function AdoptionManagementPage() {
             View and manage all animal adoptions in the system
           </CardDescription>
           <div className="flex justify-end">
-            <Button onClick={handleCreate} className="default">
+            <Button 
+              onClick={handleCreate} 
+              className="default"
+              disabled={role === "adopter"}
+            >
               <Plus className="h-4 w-4 mr-2" />
               Create New Adoption
             </Button>
@@ -386,7 +390,7 @@ export default function AdoptionManagementPage() {
                     </TableCell>
                     <TableCell>
                       <div className="flex space-x-2">
-                        {adoption.status_pembayaran !== "Lunas" &&
+                        {role !== "adopter" && adoption.status_pembayaran !== "Lunas" &&
                           adoption.status_pembayaran !== "paid" && (
                             <Button
                               variant="outline"
@@ -406,7 +410,7 @@ export default function AdoptionManagementPage() {
                               </span>
                             </Button>
                           )}
-                        {(adoption.status_pembayaran === "Tertunda" ||
+                        {role !== "adopter" && (adoption.status_pembayaran === "Tertunda" ||
                           adoption.status_pembayaran === "pending") && (
                           <Button
                             variant="outline"
@@ -429,9 +433,10 @@ export default function AdoptionManagementPage() {
                         <Button
                           variant="outline"
                           size="sm"
+                          disabled={role === "adopter"}
                           onClick={() =>
                             handleEdit(
-                              `${adoption.id_adopter}-${adoption.id_hewan}`
+                              `${adoption.id_adopter}&id_hewan=${adoption.id_hewan}`
                             )
                           }
                         >
@@ -440,18 +445,21 @@ export default function AdoptionManagementPage() {
                             Edit
                           </span>
                         </Button>
-                        <Button
-                          variant="destructive"
-                          size="sm"
-                          onClick={() =>
-                            handleDelete(adoption.id_adopter, adoption.id_hewan)
-                          }
-                        >
-                          <Trash2 className="h-4 w-4 mr-1" />
-                          <span className="sr-only sm:not-sr-only sm:ml-1">
-                            Delete
-                          </span>
-                        </Button>
+                        {role !== "adopter" && (
+                          <Button
+                            variant="destructive"
+                            size="sm"
+                            disabled={true}
+                            onClick={() =>
+                              handleDelete(adoption.id_adopter, adoption.id_hewan)
+                            }
+                          >
+                            <Trash2 className="h-4 w-4 mr-1" />
+                            <span className="sr-only sm:not-sr-only sm:ml-1">
+                              Delete
+                            </span>
+                          </Button>
+                        )}
                       </div>
                     </TableCell>
                   </TableRow>

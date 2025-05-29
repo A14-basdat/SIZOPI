@@ -443,7 +443,7 @@ export default function AdopterManagementPage() {
                             size="sm"
                             onClick={() => handleDeleteClick(adopter)}
                             disabled={
-                              adopter.active_adoptions &&
+                              !!adopter.active_adoptions &&
                               adopter.active_adoptions > 0
                             }
                           >

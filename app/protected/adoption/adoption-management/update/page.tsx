@@ -18,7 +18,6 @@ import {
   Card, 
   CardContent, 
   CardDescription, 
-  CardFooter, 
   CardHeader, 
   CardTitle 
 } from '@/components/ui/card';
@@ -37,6 +36,7 @@ import { format } from 'date-fns';
 import { zodResolver } from '@hookform/resolvers/zod';
 import { useForm } from 'react-hook-form';
 import * as z from 'zod';
+import { AdoptionServerAuthWrapper } from '../../AdoptionServerAuthWrapper';
 import { Adoption } from '@/services/adoption/adoption-management/services';
 
 // Define form schema with zod
@@ -60,7 +60,8 @@ type FormValues = z.infer<typeof formSchema>;
 export default function UpdateAdoptionPage() {
   const router = useRouter();
   const searchParams = useSearchParams();
-  const id = searchParams.get('id');
+  const idAdopter = searchParams.get('id_adopter');
+  const idHewan = searchParams.get('id_hewan');
   
   const [adoption, setAdoption] = useState<Adoption | null>(null);
   const [loading, setLoading] = useState(false);
@@ -83,30 +84,78 @@ export default function UpdateAdoptionPage() {
 
   useEffect(() => {
     async function fetchAdoption() {
-      if (!id) {
+      if (!idAdopter || !idHewan) {
         setError('No adoption ID provided');
         setLoadingData(false);
         return;
       }
 
       try {
-        // Parse the composite ID from URL
-        const [adopterId, animalId] = id.split('-');
-        
-        if (!adopterId || !animalId) {
+        if (!idAdopter.includes('-')|| !idHewan.includes('-')) {
           setError('Invalid adoption ID format');
           setLoadingData(false);
           return;
         }
         
-        // Fetch adoption
-        const adoptionData = await adoptionService.getAdoption(adopterId, animalId);
+        // Fetch adoption from supabase directly
+        const { data, error: fetchError } = await supabase
+          .schema('sizopi')
+          .from('adopsi')
+          .select(`
+            id_adopter,
+            id_hewan,
+            kontribusi_finansial,
+            tgl_mulai_adopsi,
+            tgl_berhenti_adopsi,
+            status_pembayaran
+          `)
+          .eq('id_adopter', idAdopter)
+          .eq('id_hewan', idHewan)
+          .single();
         
-        if (!adoptionData) {
-          setError('Adoption not found');
-          setLoadingData(false);
-          return;
+        if (fetchError || !data) {
+          throw new Error(fetchError?.message || 'Adoption not found');
         }
+        
+        // Get animal details
+        const { data: animalData } = await supabase
+          .schema('sizopi')
+          .from('hewan')
+          .select('nama, spesies, url_foto')
+          .eq('id', idHewan)
+          .single();
+          
+        // Get adopter details
+        const { data: adopterData } = await supabase
+          .schema('sizopi')
+          .from('adopter')
+          .select('username_adopter')
+          .eq('id_adopter', idAdopter)
+          .single();
+          
+        // Check if adopter is an individual or organization
+        const { data: individualData } = await supabase
+          .schema('sizopi')
+          .from('individu')
+          .select('nama')
+          .eq('id_adopter', idAdopter)
+          .maybeSingle();
+          
+        const { data: organizationData } = await supabase
+          .schema('sizopi')
+          .from('organisasi')
+          .select('nama_organisasi')
+          .eq('id_adopter', idAdopter)
+          .maybeSingle();
+          
+        // Combine all data
+        const adoptionData: Adoption = {
+          ...data,
+          animal_name: animalData?.nama || 'Unknown',
+          animal_species: animalData?.spesies || 'Unknown',
+          animal_photo: animalData?.url_foto || null,
+          adopter_name: individualData?.nama || organizationData?.nama_organisasi || adopterData?.username_adopter || 'Unknown'
+        };
         
         setAdoption(adoptionData);
         
@@ -126,24 +175,27 @@ export default function UpdateAdoptionPage() {
     }
     
     fetchAdoption();
-  }, [id, form]);
+  }, [idAdopter, idHewan, form, supabase]);
 
   async function onSubmit(data: FormValues) {
     if (!adoption) return;
     
     setLoading(true);
     try {
-      // Update adoption
-      await adoptionService.updateAdoption(
-        adoption.id_adopter,
-        adoption.id_hewan,
-        {
+      // Update adoption directly with supabase
+      const { error: updateError } = await supabase
+        .schema('sizopi')
+        .from('adopsi')
+        .update({
           kontribusi_finansial: data.kontribusi_finansial,
-          tgl_mulai_adopsi: data.tgl_mulai_adopsi,
-          tgl_berhenti_adopsi: data.tgl_berhenti_adopsi,
+          tgl_mulai_adopsi: format(data.tgl_mulai_adopsi, 'yyyy-MM-dd'),
+          tgl_berhenti_adopsi: format(data.tgl_berhenti_adopsi, 'yyyy-MM-dd'),
           status_pembayaran: data.status_pembayaran
-        }
-      );
+        })
+        .eq('id_adopter', adoption.id_adopter)
+        .eq('id_hewan', adoption.id_hewan);
+        
+      if (updateError) throw updateError;
       
       // Redirect back to adoption listing
       router.push('/protected/adoption/adoption-management');
@@ -157,235 +209,247 @@ export default function UpdateAdoptionPage() {
   }
 
   if (loadingData) return (
-    <div className="flex items-center justify-center h-64">
-      <div className="text-center">
-        <Loader2 className="h-8 w-8 animate-spin mx-auto mb-4 text-primary" />
-        <p className="text-muted-foreground">Loading adoption details...</p>
+    <AdoptionServerAuthWrapper>
+      <div className="flex items-center justify-center h-64">
+        <div className="text-center">
+          <Loader2 className="h-8 w-8 animate-spin mx-auto mb-4 text-primary" />
+          <p className="text-muted-foreground">Loading adoption details...</p>
+        </div>
       </div>
-    </div>
+    </AdoptionServerAuthWrapper>
   );
 
   if (!adoption && !loadingData) {
     return (
-      <div className="container mx-auto py-6 px-4">
-        <Alert variant="destructive">
-          <AlertCircle className="h-4 w-4" />
-          <AlertTitle>Error</AlertTitle>
-          <AlertDescription>{error || 'Adoption not found'}</AlertDescription>
-        </Alert>
-        
-        <div className="mt-6">
-          <Button onClick={() => router.back()}>
-            <ChevronLeft className="mr-2 h-4 w-4" />
-            Go Back
-          </Button>
+      <AdoptionServerAuthWrapper>
+        <div className="container mx-auto py-6 px-4">
+          <Alert variant="destructive">
+            <AlertCircle className="h-4 w-4" />
+            <AlertTitle>Error</AlertTitle>
+            <AlertDescription>{error || 'Adoption not found'}</AlertDescription>
+          </Alert>
+          
+          <div className="mt-6">
+            <Button onClick={() => router.back()}>
+              <ChevronLeft className="mr-2 h-4 w-4" />
+              Go Back
+            </Button>
+          </div>
         </div>
-      </div>
+      </AdoptionServerAuthWrapper>
     );
   }
 
   return (
-    <div className="container mx-auto py-6 px-4">
-      <div className="flex items-center mb-6">
-        <Button variant="ghost" onClick={() => router.back()} className="mr-4">
-          <ChevronLeft className="mr-2 h-4 w-4" />
-          Back
-        </Button>
-        <h1 className="text-2xl font-bold">Update Adoption</h1>
-      </div>
+    <AdoptionServerAuthWrapper>
+      <div className="container mx-auto py-6 px-4">
+        <div className="flex items-center mb-6">
+          <Button variant="ghost" onClick={() => router.back()} className="mr-4">
+            <ChevronLeft className="mr-2 h-4 w-4" />
+            Back
+          </Button>
+          <h1 className="text-2xl font-bold">Update Adoption</h1>
+        </div>
 
-      {error && (
-        <Alert variant="destructive" className="mb-6">
-          <AlertCircle className="h-4 w-4" />
-          <AlertTitle>Error</AlertTitle>
-          <AlertDescription>{error}</AlertDescription>
-        </Alert>
-      )}
+        {error && (
+          <Alert variant="destructive" className="mb-6">
+            <AlertCircle className="h-4 w-4" />
+            <AlertTitle>Error</AlertTitle>
+            <AlertDescription>{error}</AlertDescription>
+          </Alert>
+        )}
 
-      <Card>
-        <CardHeader>
-          <CardTitle>Adoption Details</CardTitle>
-          <CardDescription>
-            Update the adoption details for {adoption?.animal_name} and {adoption?.adopter_name}.
-          </CardDescription>
-        </CardHeader>
-        <CardContent>
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-6 mb-6">
-            <div>
-              <Label>Animal</Label>
-              <div className="mt-1 flex items-center space-x-2">
-                {adoption?.animal_photo && (
-                  <div className="h-10 w-10 rounded-full overflow-hidden flex-shrink-0">
-                    <img 
-                      src={adoption.animal_photo} 
-                      alt={adoption.animal_name} 
-                      className="h-full w-full object-cover"
-                    />
+        <Card>
+          <CardHeader>
+            <CardTitle>Adoption Details</CardTitle>
+            <CardDescription>
+              Update the adoption details for {adoption?.animal_name} and {adoption?.adopter_name}.
+            </CardDescription>
+          </CardHeader>
+          <CardContent>
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-6 mb-6">
+              <div>
+                <Label>Animal</Label>
+                <div className="mt-1 flex items-center space-x-2">
+                  {adoption?.animal_photo && (
+                    <div className="h-10 w-10 rounded-full overflow-hidden flex-shrink-0">
+                      <img 
+                        src={adoption.animal_photo} 
+                        alt={adoption.animal_name} 
+                        className="h-full w-full object-cover"
+                      />
+                    </div>
+                  )}
+                  <div>
+                    <p className="font-medium">{adoption?.animal_name}</p>
+                    <p className="text-xs text-muted-foreground">{adoption?.animal_species}</p>
                   </div>
-                )}
-                <div>
-                  <p className="font-medium">{adoption?.animal_name}</p>
-                  <p className="text-xs text-muted-foreground">{adoption?.animal_species}</p>
+                </div>
+              </div>
+              
+              <div>
+                <Label>Adopter</Label>
+                <div className="mt-1">
+                  <p className="font-medium">{adoption?.adopter_name}</p>
+                  <p className="text-xs text-muted-foreground">ID: {adoption?.id_adopter}</p>
                 </div>
               </div>
             </div>
-            
-            <div>
-              <Label>Adopter</Label>
-              <div className="mt-1">
-                <p className="font-medium">{adoption?.adopter_name}</p>
-                <p className="text-xs text-muted-foreground">ID: {adoption?.id_adopter}</p>
-              </div>
-            </div>
-          </div>
 
-          <Form {...form}>
-            <form onSubmit={form.handleSubmit(onSubmit)} className="space-y-6">
-              <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-                <FormField
-                  control={form.control}
-                  name="kontribusi_finansial"
-                  render={({ field }) => (
-                    <FormItem>
-                      <FormLabel>Financial Contribution (Rp)</FormLabel>
-                      <FormControl>
-                        <Input 
-                          type="number" 
-                          placeholder="0" 
-                          {...field} 
-                        />
-                      </FormControl>
-                      <FormDescription>
-                        Update the amount the adopter will contribute.
-                      </FormDescription>
-                      <FormMessage />
-                    </FormItem>
-                  )}
-                />
-
-                <FormField
-                  control={form.control}
-                  name="status_pembayaran"
-                  render={({ field }) => (
-                    <FormItem>
-                      <FormLabel>Payment Status</FormLabel>
-                      <Select 
-                        onValueChange={field.onChange} 
-                        defaultValue={field.value}
-                      >
+            <Form {...form}>
+              <form onSubmit={form.handleSubmit(onSubmit)} className="space-y-6">
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+                  <FormField
+                    control={form.control}
+                    name="kontribusi_finansial"
+                    render={({ field }) => (
+                      <FormItem>
+                        <FormLabel>Financial Contribution (Rp)</FormLabel>
                         <FormControl>
-                          <SelectTrigger>
-                            <SelectValue placeholder="Select payment status" />
-                          </SelectTrigger>
+                          <Input 
+                            type="number" 
+                            placeholder="0" 
+                            {...field} 
+                          />
                         </FormControl>
-                        <SelectContent>
-                          <SelectItem value="Tertunda">Tertunda (Pending)</SelectItem>
-                          <SelectItem value="Lunas">Lunas (Paid)</SelectItem>
-                          <SelectItem value="Dibatalkan">Dibatalkan (Cancelled)</SelectItem>
-                          <SelectItem value="Gagal">Gagal (Failed)</SelectItem>
-                        </SelectContent>
-                      </Select>
-                      <FormDescription>
-                        Update the current payment status.
-                      </FormDescription>
-                      <FormMessage />
-                    </FormItem>
-                  )}
-                />
+                        <FormDescription>
+                          Update the amount the adopter will contribute.
+                        </FormDescription>
+                        <FormMessage />
+                      </FormItem>
+                    )}
+                  />
 
-                <FormField
-                  control={form.control}
-                  name="tgl_mulai_adopsi"
-                  render={({ field }) => (
-                    <FormItem className="flex flex-col">
-                      <FormLabel>Start Date</FormLabel>
-                      <Popover>
-                        <PopoverTrigger asChild>
+                  <FormField
+                    control={form.control}
+                    name="status_pembayaran"
+                    render={({ field }) => (
+                      <FormItem>
+                        <FormLabel>Payment Status</FormLabel>
+                        <Select 
+                          onValueChange={field.onChange} 
+                          defaultValue={field.value}
+                        >
                           <FormControl>
-                            <Button
-                              variant={"outline"}
-                              className="pl-3 text-left font-normal"
-                            >
-                              {field.value ? (
-                                format(field.value, "PPP")
-                              ) : (
-                                <span>Pick a date</span>
-                              )}
-                              <CalendarIcon className="ml-auto h-4 w-4 opacity-50" />
-                            </Button>
+                            <SelectTrigger>
+                              <SelectValue placeholder="Select payment status" />
+                            </SelectTrigger>
                           </FormControl>
-                        </PopoverTrigger>
-                        <PopoverContent className="w-auto p-0" align="start">
-                          <Calendar
-                            mode="single"
-                            selected={field.value}
-                            onSelect={field.onChange}
-                            initialFocus
-                          />
-                        </PopoverContent>
-                      </Popover>
-                      <FormMessage />
-                    </FormItem>
-                  )}
-                />
+                          <SelectContent>
+                            <SelectItem value="Tertunda">Tertunda (Pending)</SelectItem>
+                            <SelectItem value="Lunas">Lunas (Paid)</SelectItem>
+                            <SelectItem value="Dibatalkan">Dibatalkan (Cancelled)</SelectItem>
+                            <SelectItem value="Gagal">Gagal (Failed)</SelectItem>
+                          </SelectContent>
+                        </Select>
+                        <FormDescription>
+                          Update the current payment status.
+                        </FormDescription>
+                        <FormMessage />
+                      </FormItem>
+                    )}
+                  />
 
-                <FormField
-                  control={form.control}
-                  name="tgl_berhenti_adopsi"
-                  render={({ field }) => (
-                    <FormItem className="flex flex-col">
-                      <FormLabel>End Date</FormLabel>
-                      <Popover>
-                        <PopoverTrigger asChild>
-                          <FormControl>
-                            <Button
-                              variant={"outline"}
-                              className="pl-3 text-left font-normal"
-                            >
-                              {field.value ? (
-                                format(field.value, "PPP")
-                              ) : (
-                                <span>Pick a date</span>
-                              )}
-                              <CalendarIcon className="ml-auto h-4 w-4 opacity-50" />
-                            </Button>
-                          </FormControl>
-                        </PopoverTrigger>
-                        <PopoverContent className="w-auto p-0" align="start">
-                          <Calendar
-                            mode="single"
-                            selected={field.value}
-                            onSelect={field.onChange}
-                            initialFocus
-                          />
-                        </PopoverContent>
-                      </Popover>
-                      <FormMessage />
-                    </FormItem>
-                  )}
-                />
-              </div>
+                  <FormField
+                    control={form.control}
+                    name="tgl_mulai_adopsi"
+                    render={({ field }) => (
+                      <FormItem className="flex flex-col">
+                        <FormLabel>Start Date</FormLabel>
+                        <Popover>
+                          <PopoverTrigger asChild>
+                            <FormControl>
+                              <Button
+                                variant={"outline"}
+                                className="pl-3 text-left font-normal"
+                              >
+                                {field.value ? (
+                                  format(field.value, "PPP")
+                                ) : (
+                                  <span>Pick a date</span>
+                                )}
+                                <CalendarIcon className="ml-auto h-4 w-4 opacity-50" />
+                              </Button>
+                            </FormControl>
+                          </PopoverTrigger>
+                          <PopoverContent className="w-auto p-0" align="start">
+                            <Calendar
+                              mode="single"
+                              selected={field.value}
+                              onSelect={field.onChange}
+                              initialFocus
+                            />
+                          </PopoverContent>
+                        </Popover>
+                        <FormDescription>
+                          When did the adoption begin?
+                        </FormDescription>
+                        <FormMessage />
+                      </FormItem>
+                    )}
+                  />
 
-              <div className="flex justify-end space-x-2">
-                <Button 
-                  variant="outline" 
-                  type="button"
-                  onClick={() => router.back()}
-                >
-                  Cancel
-                </Button>
-                <Button 
-                  type="submit"
-                  disabled={loading}
-                >
-                  {loading && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
-                  Update Adoption
-                </Button>
-              </div>
-            </form>
-          </Form>
-        </CardContent>
-      </Card>
-    </div>
+                  <FormField
+                    control={form.control}
+                    name="tgl_berhenti_adopsi"
+                    render={({ field }) => (
+                      <FormItem className="flex flex-col">
+                        <FormLabel>End Date</FormLabel>
+                        <Popover>
+                          <PopoverTrigger asChild>
+                            <FormControl>
+                              <Button
+                                variant={"outline"}
+                                className="pl-3 text-left font-normal"
+                              >
+                                {field.value ? (
+                                  format(field.value, "PPP")
+                                ) : (
+                                  <span>Pick a date</span>
+                                )}
+                                <CalendarIcon className="ml-auto h-4 w-4 opacity-50" />
+                              </Button>
+                            </FormControl>
+                          </PopoverTrigger>
+                          <PopoverContent className="w-auto p-0" align="start">
+                            <Calendar
+                              mode="single"
+                              selected={field.value}
+                              onSelect={field.onChange}
+                              initialFocus
+                            />
+                          </PopoverContent>
+                        </Popover>
+                        <FormDescription>
+                          When will the adoption period end?
+                        </FormDescription>
+                        <FormMessage />
+                      </FormItem>
+                    )}
+                  />
+                </div>
+
+                <div className="flex justify-end space-x-2">
+                  <Button 
+                    variant="destructive" 
+                    type="button"
+                    onClick={() => router.back()}
+                  >
+                    Cancel
+                  </Button>
+                  <Button 
+                    type="submit"
+                    disabled={loading}
+                  >
+                    {loading && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
+                    Update Adoption
+                  </Button>
+                </div>
+              </form>
+            </Form>
+          </CardContent>
+        </Card>
+      </div>
+    </AdoptionServerAuthWrapper>
   );
 }
