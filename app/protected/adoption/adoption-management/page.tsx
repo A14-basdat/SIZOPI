@@ -69,12 +69,17 @@ export default function AdoptionManagementPage() {
   const supabase = createClientComponentClient();
   const adoptionService = new AdoptionManagementService();
 
+  // Helper function to check if user is an adopter (pengunjung role)
+  const isAdopter = role === "pengunjung";
+  // Helper function to check if user is staff (any staff role)
+  const isStaff = role === "staff";
+
   const getStatusBadge = (status: string) => {
     switch (status) {
       case "Lunas":
-        return <Badge variant="default" className="bg-green-100 text-green-800 border-green-200">Lunas</Badge>;
+        return <Badge variant="secondary">Lunas</Badge>;
       case "Tertunda":
-        return <Badge variant="secondary" className="bg-yellow-100 text-yellow-800 border-yellow-200">Tertunda</Badge>;
+        return <Badge variant="outline">Tertunda</Badge>;
       case "Dibatalkan":
         return <Badge variant="destructive">Dibatalkan</Badge>;
       case "Gagal":
@@ -83,7 +88,6 @@ export default function AdoptionManagementPage() {
         return <Badge variant="default">{status}</Badge>;
     }
   };
-
   useEffect(() => {
     fetchAdoptions();
   }, []);
@@ -155,7 +159,7 @@ export default function AdoptionManagementPage() {
   }
 
   function handleEdit(id: string) {
-    router.push(`/protected/adoption/adoption-management/update?id=${id}`);
+    router.push(`/protected/adoption/adoption-management/update?id_adopter=${id}`);
   }
 
   function handleCreate() {
@@ -165,7 +169,7 @@ export default function AdoptionManagementPage() {
   function handleStatusChange(
     id_adopter: string,
     id_hewan: string,
-    newStatus: "Lunas" | "Tertunda" | "Dibatalkan" | "Gagal"
+    newStatus: 'Lunas' | 'Tertunda' | 'Dibatalkan' | 'Gagal'
   ) {
     adoptionService
       .updateAdoptionStatus(id_adopter, id_hewan, newStatus)
@@ -201,7 +205,7 @@ export default function AdoptionManagementPage() {
   if (error)
     return (
       <AdoptionServerAuthWrapper>
-        <div className="p-6">
+        <div className="mt-6 flex flex-col gap-4 p-6">
           <Alert variant="destructive">
             <AlertCircle className="h-4 w-4" />
             <AlertTitle>Error</AlertTitle>
@@ -211,7 +215,7 @@ export default function AdoptionManagementPage() {
           {/* Redirect buttons for navigation */}
 
           {/* Redirect to adoption page (staff only) */}
-          {role === "staff" && (
+          {isStaff && (
             <div className="flex justify-end mt-4">
               <RedirectButton
                 href="/protected/adoption"
@@ -245,10 +249,17 @@ export default function AdoptionManagementPage() {
         <CardHeader>
           <CardTitle>Adoption Management</CardTitle>
           <CardDescription>
-            View and manage all animal adoptions in the system
+            {isAdopter 
+              ? "View your adoption history and status"
+              : "View and manage all animal adoptions in the system"
+            }
           </CardDescription>
           <div className="flex justify-end">
-            <Button onClick={handleCreate} className="default">
+            <Button 
+              onClick={handleCreate} 
+              className="default"
+              disabled={isAdopter}
+            >
               <Plus className="h-4 w-4 mr-2" />
               Create New Adoption
             </Button>
@@ -386,7 +397,7 @@ export default function AdoptionManagementPage() {
                     </TableCell>
                     <TableCell>
                       <div className="flex space-x-2">
-                        {adoption.status_pembayaran !== "Lunas" &&
+                        {!isAdopter && adoption.status_pembayaran !== "Lunas" &&
                           adoption.status_pembayaran !== "paid" && (
                             <Button
                               variant="outline"
@@ -406,7 +417,7 @@ export default function AdoptionManagementPage() {
                               </span>
                             </Button>
                           )}
-                        {(adoption.status_pembayaran === "Tertunda" ||
+                        {!isAdopter && (adoption.status_pembayaran === "Tertunda" ||
                           adoption.status_pembayaran === "pending") && (
                           <Button
                             variant="outline"
@@ -429,9 +440,10 @@ export default function AdoptionManagementPage() {
                         <Button
                           variant="outline"
                           size="sm"
+                          disabled={isAdopter}
                           onClick={() =>
                             handleEdit(
-                              `${adoption.id_adopter}-${adoption.id_hewan}`
+                              `${adoption.id_adopter}&id_hewan=${adoption.id_hewan}`
                             )
                           }
                         >
@@ -440,18 +452,21 @@ export default function AdoptionManagementPage() {
                             Edit
                           </span>
                         </Button>
-                        <Button
-                          variant="destructive"
-                          size="sm"
-                          onClick={() =>
-                            handleDelete(adoption.id_adopter, adoption.id_hewan)
-                          }
-                        >
-                          <Trash2 className="h-4 w-4 mr-1" />
-                          <span className="sr-only sm:not-sr-only sm:ml-1">
-                            Delete
-                          </span>
-                        </Button>
+                        {!isAdopter && (
+                          <Button
+                            variant="destructive"
+                            size="sm"
+                            disabled={true}
+                            onClick={() =>
+                              handleDelete(adoption.id_adopter, adoption.id_hewan)
+                            }
+                          >
+                            <Trash2 className="h-4 w-4 mr-1" />
+                            <span className="sr-only sm:not-sr-only sm:ml-1">
+                              Delete
+                            </span>
+                          </Button>
+                        )}
                       </div>
                     </TableCell>
                   </TableRow>
@@ -526,13 +541,14 @@ export default function AdoptionManagementPage() {
           <AlertTitle>Note</AlertTitle>
           <AlertDescription>
             The "Contribution" value is based on thousands of Rupiah (Rp)
+            {isAdopter && " - You can only view your adoption records, not modify them."}
           </AlertDescription>
         </Alert>
 
         {/* Redirect buttons for navigation */}
 
         {/* Redirect to adoption page (staff only) */}
-        {role === "staff" && (
+        {isStaff && (
           <div className="flex justify-end mt-4">
             <RedirectButton
               href="/protected/adoption"
@@ -560,3 +576,4 @@ export default function AdoptionManagementPage() {
     </div>
   );
 }
+
