@@ -1,6 +1,5 @@
 "use client";
 
-import { signOutAction } from "@/app/actions";
 import { Button } from "@/components/ui/button";
 import {
   DropdownMenu,
@@ -33,16 +32,18 @@ export function NavBar() {
   const pathname = usePathname();
   const [isMobileMenuOpen, setIsMobileMenuOpen] = useState(false);
   const [isMounted, setIsMounted] = useState(false);
-  const { user, userData, signOut } = useUser();
   
-  // Determine user roles
+  // Get user data from context
+  const { user, userData, signOut, loading } = useUser();
+  
+  // Determine user roles based on userData
   const userRole = {
     isDokterHewan: userData?.role === 'dokter_hewan',
     isPenjagaHewan: userData?.roleData?.staff_type === 'penjaga',
     isStafAdmin: userData?.roleData?.staff_type === 'admin',
     isPelatihHewan: userData?.roleData?.staff_type === 'pelatih',
     isPengunjung: userData?.role === 'pengunjung',
-    isAdopter: false, // Add condition if you add adopter role
+    isAdopter: false, // Set appropriately if you add adopter role
   };
   
   // Prevent hydration mismatch
@@ -54,7 +55,7 @@ export function NavBar() {
     return null;
   }
 
-  // Navigation links based on roles
+  // Navigation links based on roles from userData
   const navLinks = user
     ? [
         { 
@@ -84,7 +85,7 @@ export function NavBar() {
                 icon: <UserIcon className="h-4 w-4 mr-2" />
               },
               { 
-                href: "/protected/kelola-adopsi", 
+                href: "/protected/adoption", 
                 label: "Kelola Adopsi",
                 icon: <HeartHandshake className="h-4 w-4 mr-2" />
               },
@@ -130,13 +131,32 @@ export function NavBar() {
         },
       ];
 
-  // Get full user name
+  // Get full user name from userData
   const getFullName = () => {
     if (!userData) return "User";
     const { nama_depan, nama_tengah, nama_belakang } = userData;
     return nama_tengah
       ? `${nama_depan} ${nama_tengah} ${nama_belakang}`
       : `${nama_depan} ${nama_belakang}`;
+  };
+
+  // Get user role display name
+  const getRoleDisplay = () => {
+    if (!userData?.role) return "User";
+    
+    if (userData.role === 'dokter_hewan') return 'Dokter Hewan';
+    if (userData.role === 'pengunjung') return 'Pengunjung';
+    
+    if (userData.role === 'staff') {
+      switch (userData.roleData?.staff_type) {
+        case 'admin': return 'Staf Admin';
+        case 'penjaga': return 'Penjaga Hewan';
+        case 'pelatih': return 'Pelatih Hewan';
+        default: return 'Staf';
+      }
+    }
+    
+    return userData.role;
   };
 
   return (
@@ -179,8 +199,8 @@ export function NavBar() {
                   </Avatar>
                   <div className="flex flex-col items-start">
                     <span className="text-sm font-medium">{getFullName()}</span>
-                    <span className="text-xs text-muted-foreground capitalize">
-                      {userData.role || "User"}
+                    <span className="text-xs text-muted-foreground">
+                      {getRoleDisplay()}
                     </span>
                   </div>
                 </Button>
