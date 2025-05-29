@@ -54,10 +54,11 @@ function Calendar({
         ...classNames,
       }}
       components={{
-        IconLeft: ({ className, ...props }) => (
+        // @ts-ignore - Component name depends on react-day-picker version
+        IconLeft: ({ className, ...props }: { className?: string }) => (
           <ChevronLeft className={cn("h-4 w-4", className)} {...props} />
         ),
-        IconRight: ({ className, ...props }) => (
+        IconRight: ({ className, ...props }: { className?: string }) => (
           <ChevronRight className={cn("h-4 w-4", className)} {...props} />
         ),
       }}

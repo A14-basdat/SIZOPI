@@ -1,93 +1,260 @@
-import { signOutAction, getCurrentSession, getUserProfile } from "@/app/actions";
-import { SubmitButton } from "@/components/submit-button";
+"use client";
 
-export default async function Navbar() {
-  // Get current session and user profile
-  const session = await getCurrentSession();
-  const userProfile = session ? await getUserProfile(session.username) : null;
+import { signOutAction } from "@/app/actions";
+import { Button } from "@/components/ui/button";
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuLabel,
+  DropdownMenuSeparator,
+  DropdownMenuTrigger,
+} from "@/components/ui/dropdown-menu";
+import {
+  AlignRight,
+  LogOut,
+  Settings,
+  User as UserIcon,
+  Home,
+  PawPrint,
+  HeartHandshake,
+  Clipboard,
+  Building2,
+  Calendar,
+} from "lucide-react";
+import Link from "next/link";
+import { usePathname } from "next/navigation";
+import { ThemeSwitcher } from "../theme-switcher";
+import { useState, useEffect } from "react";
+import { useUser } from "@/context/UserContext";
+import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 
-  if (!session || !userProfile) {
-    return null; // Don't show navbar if not logged in
+export function NavBar() {
+  const pathname = usePathname();
+  const [isMobileMenuOpen, setIsMobileMenuOpen] = useState(false);
+  const [isMounted, setIsMounted] = useState(false);
+  const { user, userData, signOut } = useUser();
+  
+  // Determine user roles
+  const userRole = {
+    isDokterHewan: userData?.role === 'dokter_hewan',
+    isPenjagaHewan: userData?.roleData?.staff_type === 'penjaga',
+    isStafAdmin: userData?.roleData?.staff_type === 'admin',
+    isPelatihHewan: userData?.roleData?.staff_type === 'pelatih',
+    isPengunjung: userData?.role === 'pengunjung',
+    isAdopter: false, // Add condition if you add adopter role
+  };
+  
+  // Prevent hydration mismatch
+  useEffect(() => {
+    setIsMounted(true);
+  }, []);
+
+  if (!isMounted) {
+    return null;
   }
 
-  const getDisplayName = () => {
-    const { nama_depan, nama_tengah, nama_belakang } = userProfile;
-    return nama_tengah 
+  // Navigation links based on roles
+  const navLinks = user
+    ? [
+        { 
+          href: "/protected", 
+          label: "Dashboard",
+          icon: <Home className="h-4 w-4 mr-2" /> 
+        },
+        ...(userRole.isDokterHewan
+          ? [{ 
+              href: "/protected/rekam-medis", 
+              label: "Rekam Medis Hewan",
+              icon: <Clipboard className="h-4 w-4 mr-2" />
+            }]
+          : []),
+        ...(userRole.isPenjagaHewan
+          ? [{ 
+              href: "/protected/catatan-perawatan", 
+              label: "Catatan Perawatan Hewan",
+              icon: <PawPrint className="h-4 w-4 mr-2" />
+            }]
+          : []),
+        ...(userRole.isStafAdmin
+          ? [
+              { 
+                href: "/protected/kelola-pengunjung", 
+                label: "Kelola Pengunjung",
+                icon: <UserIcon className="h-4 w-4 mr-2" />
+              },
+              { 
+                href: "/protected/kelola-adopsi", 
+                label: "Kelola Adopsi",
+                icon: <HeartHandshake className="h-4 w-4 mr-2" />
+              },
+              { 
+                href: "/protected/kelola-adopter", 
+                label: "Kelola Adopter",
+                icon: <Building2 className="h-4 w-4 mr-2" />
+              },
+            ]
+          : []),
+        ...(userRole.isPelatihHewan
+          ? [{ 
+              href: "/protected/jadwal-pertunjukan", 
+              label: "Jadwal Pertunjukan",
+              icon: <Calendar className="h-4 w-4 mr-2" />
+            }]
+          : []),
+        ...(userRole.isPengunjung
+          ? [{ 
+              href: "/protected/informasi-zoo", 
+              label: "Informasi Kebun Binatang",
+              icon: <PawPrint className="h-4 w-4 mr-2" />
+            }]
+          : []),
+        ...(userRole.isAdopter
+          ? [{ 
+              href: "/protected/hewan-adopsi", 
+              label: "Hewan Adopsi",
+              icon: <HeartHandshake className="h-4 w-4 mr-2" />
+            }]
+          : []),
+      ]
+    : [
+        { 
+          href: "/sign-in", 
+          label: "Login",
+          icon: <UserIcon className="h-4 w-4 mr-2" />
+        },
+        { 
+          href: "/sign-up", 
+          label: "Registrasi",
+          icon: <UserIcon className="h-4 w-4 mr-2" />
+        },
+      ];
+
+  // Get full user name
+  const getFullName = () => {
+    if (!userData) return "User";
+    const { nama_depan, nama_tengah, nama_belakang } = userData;
+    return nama_tengah
       ? `${nama_depan} ${nama_tengah} ${nama_belakang}`
       : `${nama_depan} ${nama_belakang}`;
   };
 
-  const getRoleBadgeColor = (role: string) => {
-    switch (role) {
-      case 'pengunjung':
-        return 'bg-blue-100 text-blue-800';
-      case 'dokter_hewan':
-        return 'bg-green-100 text-green-800';
-      case 'staff':
-        return 'bg-purple-100 text-purple-800';
-      default:
-        return 'bg-gray-100 text-gray-800';
-    }
-  };
-
-  const getRoleDisplayName = (role: string) => {
-    switch (role) {
-      case 'pengunjung':
-        return 'Visitor';
-      case 'dokter_hewan':
-        return 'Veterinarian';
-      case 'staff':
-        return 'Staff';
-      default:
-        return role;
-    }
-  };
-
   return (
-    <nav className="bg-white shadow-sm border-b">
-      <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
-        <div className="flex justify-between items-center h-16">
-          {/* Left side - Logo/Brand */}
-          <div className="flex items-center">
-            <h1 className="text-2xl font-bold text-green-600">SIZOPI</h1>
-          </div>
+    <nav className="w-full flex justify-center border-b border-b-foreground/10 h-16 bg-background sticky top-0 z-30">
+      <div className="w-full max-w-7xl flex justify-between items-center p-3 px-5 text-sm">
+        <div className="flex gap-5 items-center font-semibold">
+          <Link href={"/"} className="flex items-center">
+            <PawPrint className="h-6 w-6 text-primary mr-2" />
+            <span className="font-bold text-xl">SIZOPI</span>
+          </Link>
+        </div>
 
-          {/* Right side - User info and logout */}
-          <div className="flex items-center space-x-4">
-            {/* User Profile Info */}
-            <div className="flex items-center space-x-3">
-              {/* User Avatar */}
-              <div className="w-8 h-8 bg-green-500 rounded-full flex items-center justify-center text-white font-medium">
-                {userProfile.nama_depan.charAt(0).toUpperCase()}
-              </div>
+        {/* Desktop Navigation */}
+        <div className="hidden md:flex items-center gap-4">
+          {navLinks.map((link) => (
+            <Link
+              key={link.href}
+              href={link.href}
+              className={`text-sm font-medium transition-colors hover:text-primary flex items-center ${
+                pathname === link.href || pathname.startsWith(`${link.href}/`)
+                  ? "text-foreground font-semibold"
+                  : "text-muted-foreground"
+              }`}
+            >
+              {link.icon}
+              {link.label}
+            </Link>
+          ))}
+          
+          {user && userData && (
+            <DropdownMenu>
+              <DropdownMenuTrigger asChild>
+                <Button variant="ghost" size="sm" className="gap-2">
+                  <Avatar className="h-8 w-8">
+                    <AvatarImage src="" alt={getFullName()} />
+                    <AvatarFallback>
+                      {userData.nama_depan?.charAt(0).toUpperCase()}
+                      {userData.nama_belakang?.charAt(0).toUpperCase()}
+                    </AvatarFallback>
+                  </Avatar>
+                  <div className="flex flex-col items-start">
+                    <span className="text-sm font-medium">{getFullName()}</span>
+                    <span className="text-xs text-muted-foreground capitalize">
+                      {userData.role || "User"}
+                    </span>
+                  </div>
+                </Button>
+              </DropdownMenuTrigger>
+              <DropdownMenuContent align="end">
+                <DropdownMenuLabel>
+                  Akun Saya
+                </DropdownMenuLabel>
+                <DropdownMenuSeparator />
+                <DropdownMenuItem asChild>
+                  <Link href="/protected/profile" className="w-full flex gap-2 items-center">
+                    <Settings size={16} /> Pengaturan Profil
+                  </Link>
+                </DropdownMenuItem>
+                <DropdownMenuItem onClick={signOut} className="cursor-pointer">
+                  <LogOut size={16} className="mr-2" /> Logout
+                </DropdownMenuItem>
+              </DropdownMenuContent>
+            </DropdownMenu>
+          )}
+
+          <ThemeSwitcher />
+        </div>
+
+        {/* Mobile Navigation */}
+        <div className="flex md:hidden items-center gap-2">
+          <ThemeSwitcher />
+
+          <DropdownMenu
+            open={isMobileMenuOpen}
+            onOpenChange={setIsMobileMenuOpen}
+          >
+            <DropdownMenuTrigger asChild>
+              <Button variant="ghost" size="sm">
+                <AlignRight size={20} />
+              </Button>
+            </DropdownMenuTrigger>
+            <DropdownMenuContent className="w-56" align="end">
+              {user && userData && (
+                <>
+                  <DropdownMenuLabel className="font-normal">
+                    <div className="flex flex-col space-y-1">
+                      <p className="text-sm font-medium">{getFullName()}</p>
+                      <p className="text-xs text-muted-foreground">{userData.email}</p>
+                    </div>
+                  </DropdownMenuLabel>
+                  <DropdownMenuSeparator />
+                </>
+              )}
               
-              {/* User Details */}
-              <div className="flex flex-col">
-                <span className="text-sm font-medium text-gray-900">
-                  {getDisplayName()}
-                </span>
-                <div className="flex items-center space-x-2">
-                  <span className="text-xs text-gray-500">@{session.username}</span>
-                  <span className={`inline-flex items-center px-2 py-0.5 rounded-full text-xs font-medium ${getRoleBadgeColor(session.role)}`}>
-                    {getRoleDisplayName(session.role)}
-                  </span>
-                </div>
-              </div>
-            </div>
+              {navLinks.map((link) => (
+                <DropdownMenuItem key={link.href} asChild>
+                  <Link href={link.href} className="flex items-center">
+                    {link.icon}
+                    {link.label}
+                  </Link>
+                </DropdownMenuItem>
+              ))}
 
-            {/* Logout Button */}
-            <form action={signOutAction}>
-              <SubmitButton
-                pendingText="Signing out..."
-                className="inline-flex items-center px-3 py-2 border border-transparent text-sm leading-4 font-medium rounded-md text-white bg-red-600 hover:bg-red-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-red-500 transition-colors duration-200"
-              >
-                <svg className="w-4 h-4 mr-2" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M17 16l4-4m0 0l-4-4m4 4H7m6 4v1a3 3 0 01-3 3H6a3 3 0 01-3-3V7a3 3 0 013-3h4a3 3 0 013 3v1" />
-                </svg>
-                Logout
-              </SubmitButton>
-            </form>
-          </div>
+              {user && userData && (
+                <>
+                  <DropdownMenuSeparator />
+                  <DropdownMenuItem asChild>
+                    <Link href="/protected/profile" className="flex gap-2 items-center">
+                      <Settings size={16} /> Pengaturan Profil
+                    </Link>
+                  </DropdownMenuItem>
+                  <DropdownMenuItem onClick={signOut} className="cursor-pointer">
+                    <LogOut size={16} className="mr-2" /> Logout
+                  </DropdownMenuItem>
+                </>
+              )}
+            </DropdownMenuContent>
+          </DropdownMenu>
         </div>
       </div>
     </nav>

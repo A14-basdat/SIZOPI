@@ -38,7 +38,7 @@ interface ProfileFormData {
 interface ProfileEditFormProps {
   initialData: ProfileFormData;
   userRole: UserRole;
-  onSubmit: (data: ProfileFormData) => void;
+  onSubmit: (data: ProfileFormData) => Promise<void> | void;
 }
 
 export default function ProfileEditForm({ initialData, userRole, onSubmit }: ProfileEditFormProps) {
@@ -55,7 +55,7 @@ export default function ProfileEditForm({ initialData, userRole, onSubmit }: Pro
         specializations: {
           ...formData.specializations,
           [specializationKey]: checked
-        }
+        } as ProfileFormData['specializations']
       });
     } else {
       setFormData({
@@ -215,8 +215,12 @@ export default function ProfileEditForm({ initialData, userRole, onSubmit }: Pro
                       setFormData({
                         ...formData,
                         specializations: {
-                          ...formData.specializations,
-                          largeMammals: !formData.specializations?.largeMammals
+                          largeMammals: !formData.specializations?.largeMammals || false,
+                          reptiles: formData.specializations?.reptiles || false,
+                          exoticBirds: formData.specializations?.exoticBirds || false,
+                          primates: formData.specializations?.primates || false,
+                          other: formData.specializations?.other || false,
+                          otherSpecialization: formData.specializations?.otherSpecialization
                         }
                       })
                     }
@@ -235,8 +239,12 @@ export default function ProfileEditForm({ initialData, userRole, onSubmit }: Pro
                       setFormData({
                         ...formData,
                         specializations: {
-                          ...formData.specializations,
-                          reptiles: !formData.specializations?.reptiles
+                          largeMammals: formData.specializations?.largeMammals || false,
+                          reptiles: !formData.specializations?.reptiles,
+                          exoticBirds: formData.specializations?.exoticBirds || false,
+                          primates: formData.specializations?.primates || false,
+                          other: formData.specializations?.other || false,
+                          otherSpecialization: formData.specializations?.otherSpecialization
                         }
                       })
                     }
@@ -255,8 +263,12 @@ export default function ProfileEditForm({ initialData, userRole, onSubmit }: Pro
                       setFormData({
                         ...formData,
                         specializations: {
-                          ...formData.specializations,
-                          exoticBirds: !formData.specializations?.exoticBirds
+                          largeMammals: formData.specializations?.largeMammals || false,
+                          reptiles: !formData.specializations?.reptiles,
+                          exoticBirds: formData.specializations?.exoticBirds || false,
+                          primates: formData.specializations?.primates || false,
+                          other: formData.specializations?.other || false,
+                          otherSpecialization: formData.specializations?.otherSpecialization
                         }
                       })
                     }
@@ -275,8 +287,12 @@ export default function ProfileEditForm({ initialData, userRole, onSubmit }: Pro
                       setFormData({
                         ...formData,
                         specializations: {
-                          ...formData.specializations,
-                          primates: !formData.specializations?.primates
+                          largeMammals: formData.specializations?.largeMammals || false,
+                          reptiles: !formData.specializations?.reptiles,
+                          exoticBirds: formData.specializations?.exoticBirds || false,
+                          primates: formData.specializations?.primates || false,
+                          other: formData.specializations?.other || false,
+                          otherSpecialization: formData.specializations?.otherSpecialization
                         }
                       })
                     }
@@ -295,8 +311,12 @@ export default function ProfileEditForm({ initialData, userRole, onSubmit }: Pro
                       setFormData({
                         ...formData,
                         specializations: {
-                          ...formData.specializations,
-                          other: !formData.specializations?.other
+                          largeMammals: formData.specializations?.largeMammals || false,
+                          reptiles: !formData.specializations?.reptiles,
+                          exoticBirds: formData.specializations?.exoticBirds || false,
+                          primates: formData.specializations?.primates || false,
+                          other: formData.specializations?.other || false,
+                          otherSpecialization: formData.specializations?.otherSpecialization
                         }
                       })
                     }
